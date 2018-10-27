@@ -6,8 +6,12 @@
 #include <unistd.h>
 #include <float.h>
 #include <limits.h>
+
+#ifndef USE_SGX
 #include <time.h>
 #include <sys/time.h>
+#else
+#endif
 
 #include "utils.h"
 
@@ -24,14 +28,17 @@ double get_wall_time()
 }
 */
 
+#ifndef USE_SGX
 double what_time_is_it_now()
 {
-    struct timeval time;
-    if (gettimeofday(&time,NULL)){
-        return 0;
-    }
-    return (double)time.tv_sec + (double)time.tv_usec * .000001;
+  struct timeval time;
+  if (gettimeofday(&time,NULL)){
+    return 0;
+  }
+  return (double)time.tv_sec + (double)time.tv_usec * .000001;
 }
+#else
+#endif
 
 int *read_intlist(char *gpu_list, int *ngpus, int d)
 {
@@ -56,59 +63,67 @@ int *read_intlist(char *gpu_list, int *ngpus, int d)
     return gpus;
 }
 
+#ifndef USE_SGX
 int *read_map(char *filename)
 {
-    int n = 0;
-    int *map = 0;
-    char *str;
-    FILE *file = fopen(filename, "r");
-    if(!file) file_error(filename);
-    while((str=fgetl(file))){
-        ++n;
-        map = realloc(map, n*sizeof(int));
-        map[n-1] = atoi(str);
-    }
-    return map;
+  int n = 0;
+  int *map = 0;
+  char *str;
+  FILE *file = fopen(filename, "r");
+  if(!file) file_error(filename);
+  while((str=fgetl(file))){
+    ++n;
+    map = realloc(map, n*sizeof(int));
+    map[n-1] = atoi(str);
+  }
+  return map;
 }
-
 void sorta_shuffle(void *arr, size_t n, size_t size, size_t sections)
 {
-    size_t i;
-    for(i = 0; i < sections; ++i){
-        size_t start = n*i/sections;
-        size_t end = n*(i+1)/sections;
-        size_t num = end-start;
-        shuffle(arr+(start*size), num, size);
-    }
+  size_t i;
+  for(i = 0; i < sections; ++i){
+    size_t start = n*i/sections;
+    size_t end = n*(i+1)/sections;
+    size_t num = end-start;
+    shuffle(arr+(start*size), num, size);
+  }
 }
+#else
+#endif
 
+#ifndef USE_SGX
 void shuffle(void *arr, size_t n, size_t size)
 {
-    size_t i;
-    void *swp = calloc(1, size);
-    for(i = 0; i < n-1; ++i){
-        size_t j = i + rand()/(RAND_MAX / (n-i)+1);
-        memcpy(swp,          arr+(j*size), size);
-        memcpy(arr+(j*size), arr+(i*size), size);
-        memcpy(arr+(i*size), swp,          size);
-    }
+  size_t i;
+  void *swp = calloc(1, size);
+  for(i = 0; i < n-1; ++i){
+    size_t j = i + rand()/(RAND_MAX / (n-i)+1);
+    memcpy(swp,          arr+(j*size), size);
+    memcpy(arr+(j*size), arr+(i*size), size);
+    memcpy(arr+(i*size), swp,          size);
+  }
 }
+#else
+#endif
 
+#ifndef USE_SGX
 int *random_index_order(int min, int max)
 {
-    int *inds = calloc(max-min, sizeof(int));
-    int i;
-    for(i = min; i < max; ++i){
-        inds[i] = i;
-    }
-    for(i = min; i < max-1; ++i){
-        int swap = inds[i];
-        int index = i + rand()%(max-i);
-        inds[i] = inds[index];
-        inds[index] = swap;
-    }
-    return inds;
+  int *inds = calloc(max-min, sizeof(int));
+  int i;
+  for(i = min; i < max; ++i){
+    inds[i] = i;
+  }
+  for(i = min; i < max-1; ++i){
+    int swap = inds[i];
+    int index = i + rand()%(max-i);
+    inds[i] = inds[index];
+    inds[index] = swap;
+  }
+  return inds;
 }
+#else
+#endif
 
 void del_arg(int argc, char **argv, int index)
 {
@@ -200,39 +215,45 @@ char int_to_alphanum(int i)
     return (i < 10) ? i + 48 : i + 87;
 }
 
+#ifndef USE_SGX
 void pm(int M, int N, float *A)
 {
-    int i,j;
-    for(i =0 ; i < M; ++i){
-        printf("%d ", i+1);
-        for(j = 0; j < N; ++j){
-            printf("%2.4f, ", A[i*N+j]);
-        }
-        printf("\n");
+  int i,j;
+  for(i =0 ; i < M; ++i){
+    printf("%d ", i+1);
+    for(j = 0; j < N; ++j){
+      printf("%2.4f, ", A[i*N+j]);
     }
     printf("\n");
+  }
+  printf("\n");
 }
+#else
+#endif
 
+
+#ifndef USE_SGX
 void find_replace(char *str, char *orig, char *rep, char *output)
 {
-    char buffer[4096] = {0};
-    char *p;
+  char buffer[4096] = {0};
+  char *p;
 
-    sprintf(buffer, "%s", str);
-    if(!(p = strstr(buffer, orig))){  // Is 'orig' even in 'str'?
-        sprintf(output, "%s", str);
-        return;
-    }
+  sprintf(buffer, "%s", str);
+  if(!(p = strstr(buffer, orig))){  // Is 'orig' even in 'str'?
+    sprintf(output, "%s", str);
+    return;
+  }
 
-    *p = '\0';
+  *p = '\0';
 
-    sprintf(output, "%s%s%s", buffer, rep, p+strlen(orig));
+  sprintf(output, "%s%s%s", buffer, rep, p+strlen(orig));
 }
 
 float sec(clock_t clocks)
 {
-    return (float)clocks/CLOCKS_PER_SEC;
-}
+  return (float)clocks/CLOCKS_PER_SEC;
+}#else
+#endif
 
 void top_k(float *a, int n, int k, int *index)
 {
@@ -250,39 +271,41 @@ void top_k(float *a, int n, int k, int *index)
     }
 }
 
+#ifndef USE_SGX
 void error(const char *s)
 {
-    perror(s);
-    assert(0);
-    exit(-1);
+  perror(s);
+  assert(0);
+  exit(-1);
 }
 
 unsigned char *read_file(char *filename)
 {
-    FILE *fp = fopen(filename, "rb");
-    size_t size;
+  FILE *fp = fopen(filename, "rb");
+  size_t size;
 
-    fseek(fp, 0, SEEK_END); 
-    size = ftell(fp);
-    fseek(fp, 0, SEEK_SET); 
+  fseek(fp, 0, SEEK_END); 
+  size = ftell(fp);
+  fseek(fp, 0, SEEK_SET); 
 
-    unsigned char *text = calloc(size+1, sizeof(char));
-    fread(text, 1, size, fp);
-    fclose(fp);
-    return text;
+  unsigned char *text = calloc(size+1, sizeof(char));
+  fread(text, 1, size, fp);
+  fclose(fp);
+  return text;
 }
-
 void malloc_error()
 {
-    fprintf(stderr, "Malloc error\n");
-    exit(-1);
+  fprintf(stderr, "Malloc error\n");
+  exit(-1);
 }
 
 void file_error(char *s)
 {
-    fprintf(stderr, "Couldn't open file: %s\n", s);
-    exit(0);
+  fprintf(stderr, "Couldn't open file: %s\n", s);
+  exit(0);
 }
+#else
+#endif
 
 list *split_str(char *s, char delim)
 {
@@ -332,6 +355,7 @@ void free_ptrs(void **ptrs, int n)
     free(ptrs);
 }
 
+#ifndef USE_SGX
 char *fgetl(FILE *fp)
 {
     if(feof(fp)) return 0;
@@ -418,7 +442,8 @@ void write_all(int fd, char *buffer, size_t bytes)
         n += next;
     }
 }
-
+#else
+#endif
 
 char *copy_string(char *s)
 {
@@ -504,12 +529,15 @@ void mean_arrays(float **a, int n, int els, float *avg)
     }
 }
 
+#ifndef USE_SGX
 void print_statistics(float *a, int n)
 {
-    float m = mean_array(a, n);
-    float v = variance_array(a, n);
-    printf("MSE: %.6f, Mean: %.6f, Variance: %.6f\n", mse_array(a, n), m, v);
+  float m = mean_array(a, n);
+  float v = variance_array(a, n);
+  printf("MSE: %.6f, Mean: %.6f, Variance: %.6f\n", mse_array(a, n), m, v);
 }
+#else
+#endif
 
 float variance_array(float *a, int n)
 {
@@ -589,18 +617,21 @@ void scale_array(float *a, int n, float s)
     }
 }
 
+#ifndef USE_SGX
 int sample_array(float *a, int n)
 {
-    float sum = sum_array(a, n);
-    scale_array(a, n, 1./sum);
-    float r = rand_uniform(0, 1);
-    int i;
-    for(i = 0; i < n; ++i){
-        r = r - a[i];
-        if (r <= 0) return i;
-    }
-    return n-1;
+  float sum = sum_array(a, n);
+  scale_array(a, n, 1./sum);
+  float r = rand_uniform(0, 1);
+  int i;
+  for(i = 0; i < n; ++i){
+    r = r - a[i];
+    if (r <= 0) return i;
+  }
+  return n-1;
 }
+#else
+#endif
 
 int max_int_index(int *a, int n)
 {
@@ -641,35 +672,35 @@ int int_index(int *a, int val, int n)
 
 int rand_int(int min, int max)
 {
-    if (max < min){
-        int s = min;
-        min = max;
-        max = s;
-    }
-    int r = (rand()%(max - min + 1)) + min;
-    return r;
+  if (max < min){
+    int s = min;
+    min = max;
+    max = s;
+  }
+  int r = (rand()%(max - min + 1)) + min;
+  return r;
 }
 
 // From http://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 float rand_normal()
 {
-    static int haveSpare = 0;
-    static double rand1, rand2;
+  static int haveSpare = 0;
+  static double rand1, rand2;
 
-    if(haveSpare)
+  if(haveSpare)
     {
-        haveSpare = 0;
-        return sqrt(rand1) * sin(rand2);
+      haveSpare = 0;
+      return sqrt(rand1) * sin(rand2);
     }
 
-    haveSpare = 1;
+  haveSpare = 1;
 
-    rand1 = rand() / ((double) RAND_MAX);
-    if(rand1 < 1e-100) rand1 = 1e-100;
-    rand1 = -2 * log(rand1);
-    rand2 = (rand() / ((double) RAND_MAX)) * TWO_PI;
+  rand1 = rand() / ((double) RAND_MAX);
+  if(rand1 < 1e-100) rand1 = 1e-100;
+  rand1 = -2 * log(rand1);
+  rand2 = (rand() / ((double) RAND_MAX)) * TWO_PI;
 
-    return sqrt(rand1) * cos(rand2);
+  return sqrt(rand1) * cos(rand2);
 }
 
 /*
@@ -685,31 +716,31 @@ float rand_normal()
 
 size_t rand_size_t()
 {
-    return  ((size_t)(rand()&0xff) << 56) | 
-        ((size_t)(rand()&0xff) << 48) |
-        ((size_t)(rand()&0xff) << 40) |
-        ((size_t)(rand()&0xff) << 32) |
-        ((size_t)(rand()&0xff) << 24) |
-        ((size_t)(rand()&0xff) << 16) |
-        ((size_t)(rand()&0xff) << 8) |
-        ((size_t)(rand()&0xff) << 0);
+  return  ((size_t)(rand()&0xff) << 56) | 
+    ((size_t)(rand()&0xff) << 48) |
+    ((size_t)(rand()&0xff) << 40) |
+    ((size_t)(rand()&0xff) << 32) |
+    ((size_t)(rand()&0xff) << 24) |
+    ((size_t)(rand()&0xff) << 16) |
+    ((size_t)(rand()&0xff) << 8) |
+    ((size_t)(rand()&0xff) << 0);
 }
 
 float rand_uniform(float min, float max)
 {
-    if(max < min){
-        float swap = min;
-        min = max;
-        max = swap;
-    }
-    return ((float)rand()/RAND_MAX * (max - min)) + min;
+  if(max < min){
+    float swap = min;
+    min = max;
+    max = swap;
+  }
+  return ((float)rand()/RAND_MAX * (max - min)) + min;
 }
 
 float rand_scale(float s)
 {
-    float scale = rand_uniform(1, s);
-    if(rand()%2) return scale;
-    return 1./scale;
+  float scale = rand_uniform(1, s);
+  if(rand()%2) return scale;
+  return 1./scale;
 }
 
 float **one_hot_encode(float *a, int n, int k)

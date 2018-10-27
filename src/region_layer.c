@@ -82,7 +82,7 @@ box get_region_box(float *x, float *biases, int n, int index, int i, int j, int 
     b.h = exp(x[index + 3*stride]) * biases[2*n+1] / h;
     return b;
 }
-
+#ifndef USE_SGX
 float delta_region_box(box truth, float *x, float *biases, int n, int index, int i, int j, int w, int h, float *delta, float scale, int stride)
 {
     box pred = get_region_box(x, biases, n, index, i, j, w, h, stride);
@@ -99,6 +99,9 @@ float delta_region_box(box truth, float *x, float *biases, int n, int index, int
     delta[index + 3*stride] = scale * (th - x[index + 3*stride]);
     return iou;
 }
+#else
+#endif
+
 
 void delta_region_mask(float *truth, float *x, int n, int index, float *delta, int stride, int scale)
 {

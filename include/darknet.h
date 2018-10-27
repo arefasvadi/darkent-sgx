@@ -3,7 +3,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#ifndef USE_SGX
 #include <pthread.h>
+#endif
 
 #define SECRET_NUM -1234
 extern int gpu_index;
@@ -600,7 +602,10 @@ typedef struct list{
     node *back;
 } list;
 
+#ifndef USE_SGX
 pthread_t load_data(load_args args);
+#else
+#endif
 list *read_data_cfg(char *filename);
 list *read_cfg(char *filename);
 unsigned char *read_file(char *filename);
@@ -760,7 +765,10 @@ image get_image_from_stream(CvCapture *cap);
 #endif
 void free_image(image m);
 float train_network(network *net, data d);
+#ifndef USE_SGX
 pthread_t load_data_in_thread(load_args args);
+#else
+#endif
 void load_data_blocking(load_args args);
 list *get_paths(char *filename);
 void hierarchy_predictions(float *predictions, int n, tree *hier, int only_leaves, int stride);
@@ -773,9 +781,15 @@ char *find_char_arg(int argc, char **argv, char *arg, char *def);
 char *basecfg(char *cfgfile);
 void find_replace(char *str, char *orig, char *rep, char *output);
 void free_ptrs(void **ptrs, int n);
+#ifndef USE_SGX
 char *fgetl(FILE *fp);
+#else
+#endif
 void strip(char *s);
+#ifndef USE_SGX
 float sec(clock_t clocks);
+#else
+#endif
 void **list_to_array(list *l);
 void top_k(float *a, int n, int k, int *index);
 int *read_map(char *filename);

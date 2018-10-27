@@ -21,7 +21,10 @@ void change_leaves(tree *t, char *leaf_list)
             }
         }
     }
+#ifndef USE_SGX
     fprintf(stderr, "Found %d leaves.\n", found);
+#else
+#endif
 }
 
 float get_hierarchy_probability(float *x, tree *hier, int c, int stride)
@@ -80,6 +83,7 @@ int hierarchy_top_prediction(float *predictions, tree *hier, float thresh, int s
     return 0;
 }
 
+#ifndef USE_SGX
 tree *read_tree(char *filename)
 {
     tree t = {0};
@@ -137,3 +141,5 @@ tree *read_tree(char *filename)
     //error(0);
     return tree_ptr;
 }
+#else
+#endif

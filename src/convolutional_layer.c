@@ -322,7 +322,10 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
     l.workspace_size = get_workspace_size(l);
     l.activation = activation;
 
+#ifndef USE_SGX
     fprintf(stderr, "conv  %5d %2d x%2d /%2d  %4d x%4d x%4d   ->  %4d x%4d x%4d  %5.3f BFLOPs\n", n, size, size, stride, w, h, c, l.out_w, l.out_h, l.out_c, (2.0 * l.n * l.size*l.size*l.c/l.groups * l.out_h*l.out_w)/1000000000.);
+#else
+#endif
 
     return l;
 }
@@ -591,18 +594,22 @@ image *get_weights(convolutional_layer l)
     return weights;
 }
 
+#ifndef USE_SGX
 image *visualize_convolutional_layer(convolutional_layer l, char *window, image *prev_weights)
 {
-    image *single_weights = get_weights(l);
-    show_images(single_weights, l.n, window);
+  image *single_weights = get_weights(l);
+  show_images(single_weights, l.n, window);
 
-    image delta = get_convolutional_image(l);
-    image dc = collapse_image_layers(delta, 1);
-    char buff[256];
-    sprintf(buff, "%s: Output", window);
-    //show_image(dc, buff);
-    //save_image(dc, buff);
-    free_image(dc);
-    return single_weights;
+  image delta = get_convolutional_image(l);
+  image dc = collapse_image_layers(delta, 1);
+  char buff[256];
+  sprintf(buff, "%s: Output", window);
+  //show_image(dc, buff);
+  //save_image(dc, buff);
+  free_image(dc);
+  return single_weights;
 }
+#else
+#endif
+
 

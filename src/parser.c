@@ -84,37 +84,42 @@ LAYER_TYPE string_to_layer_type(char * type)
     return BLANK;
 }
 
-void free_section(section *s)
-{
-    free(s->type);
-    node *n = s->options->front;
-    while(n){
-        kvp *pair = (kvp *)n->val;
-        free(pair->key);
-        free(pair);
-        node *next = n->next;
-        free(n);
-        n = next;
-    }
-    free(s->options);
-    free(s);
+void free_section(section *s) {
+  free(s->type);
+  node *n = s->options->front;
+  while (n) {
+    kvp *pair = (kvp *)n->val;
+    /* my_printf(ANSI_COLOR_GREEN "KEY is %s" ANSI_COLOR_RESET "\n", pair->key); */
+    free(pair->key);
+    /* my_printf(ANSI_COLOR_GREEN "Val is %s" ANSI_COLOR_RESET "\n", pair->val); */
+    /* my_printf(ANSI_COLOR_RED "REACHED!" ANSI_COLOR_RESET "\n"); */
+    free(pair);
+    node *next = n->next;
+    free(n);
+    n = next;
+  }
+  free(s->options);
+  free(s);
 }
 
+#ifndef USE_SGX
 void parse_data(char *data, float *a, int n)
 {
-    int i;
-    if(!data) return;
-    char *curr = data;
-    char *next = data;
-    int done = 0;
-    for(i = 0; i < n && !done; ++i){
-        while(*++next !='\0' && *next != ',');
-        if(*next == '\0') done = 1;
-        *next = '\0';
-        sscanf(curr, "%g", &a[i]);
-        curr = next+1;
-    }
+  int i;
+  if(!data) return;
+  char *curr = data;
+  char *next = data;
+  int done = 0;
+  for(i = 0; i < n && !done; ++i){
+    while(*++next !='\0' && *next != ',');
+    if(*next == '\0') done = 1;
+    *next = '\0';
+    sscanf(curr, "%g", &a[i]);
+    curr = next+1;
+  }
 }
+#else
+#endif
 
 typedef struct size_params{
     int batch;
@@ -141,8 +146,10 @@ local_layer parse_local(list *options, size_params params)
     w = params.w;
     c = params.c;
     batch=params.batch;
+#ifndef USE_SGX
     if(!(h && w && c)) error("Layer before local layer must output image.");
-
+#else
+#endif
     local_layer layer = make_local_layer(batch,h,w,c,n,size,stride,pad,activation);
 
     return layer;
@@ -162,7 +169,10 @@ layer parse_deconvolutional(list *options, size_params params)
     w = params.w;
     c = params.c;
     batch=params.batch;
+#ifndef USE_SGX
     if(!(h && w && c)) error("Layer before deconvolutional layer must output image.");
+#else
+#endif
     int batch_normalize = option_find_int_quiet(options, "batch_normalize", 0);
     int pad = option_find_int_quiet(options, "pad",0);
     int padding = option_find_int_quiet(options, "padding",0);
@@ -192,7 +202,10 @@ convolutional_layer parse_convolutional(list *options, size_params params)
     w = params.w;
     c = params.c;
     batch=params.batch;
+#ifndef USE_SGX
     if(!(h && w && c)) error("Layer before convolutional layer must output image.");
+#else
+#endif
     int batch_normalize = option_find_int_quiet(options, "batch_normalize", 0);
     int binary = option_find_int_quiet(options, "binary", 0);
     int xnor = option_find_int_quiet(options, "xnor", 0);
@@ -271,7 +284,10 @@ softmax_layer parse_softmax(list *options, size_params params)
     softmax_layer layer = make_softmax_layer(params.batch, params.inputs, groups);
     layer.temperature = option_find_float_quiet(options, "temperature", 1);
     char *tree_file = option_find_str(options, "tree", 0);
+#ifndef USE_SGX
     if (tree_file) layer.softmax_tree = read_tree(tree_file);
+#else
+#endif
     layer.w = params.w;
     layer.h = params.h;
     layer.c = params.c;
@@ -300,6 +316,7 @@ int *parse_yolo_mask(char *a, int *num)
     return mask;
 }
 
+#ifndef USE_SGX
 layer parse_yolo(list *options, size_params params)
 {
     int classes = option_find_int(options, "classes", 20);
@@ -337,7 +354,10 @@ layer parse_yolo(list *options, size_params params)
     }
     return l;
 }
+#else
+#endif
 
+#ifndef USE_SGX
 layer parse_region(list *options, size_params params)
 {
     int coords = option_find_int(options, "coords", 4);
@@ -372,7 +392,6 @@ layer parse_region(list *options, size_params params)
     if (tree_file) l.softmax_tree = read_tree(tree_file);
     char *map_file = option_find_str(options, "map", 0);
     if (map_file) l.map = read_map(map_file);
-
     char *a = option_find_str(options, "anchors", 0);
     if(a){
         int len = strlen(a);
@@ -389,7 +408,11 @@ layer parse_region(list *options, size_params params)
     }
     return l;
 }
+#else
+#endif
 
+
+#ifndef USE_SGX
 detection_layer parse_detection(list *options, size_params params)
 {
     int coords = option_find_int(options, "coords", 1);
@@ -413,6 +436,8 @@ detection_layer parse_detection(list *options, size_params params)
     layer.reorg = option_find_int_quiet(options, "reorg", 0);
     return layer;
 }
+#else
+#endif
 
 cost_layer parse_cost(list *options, size_params params)
 {
@@ -450,6 +475,7 @@ crop_layer parse_crop(list *options, size_params params)
     return l;
 }
 
+#ifndef USE_SGX
 layer parse_reorg(list *options, size_params params)
 {
     int stride = option_find_int(options, "stride",1);
@@ -467,6 +493,8 @@ layer parse_reorg(list *options, size_params params)
     layer layer = make_reorg_layer(batch,w,h,c,stride,reverse, flatten, extra);
     return layer;
 }
+#else 
+#endif
 
 maxpool_layer parse_maxpool(list *options, size_params params)
 {
@@ -636,7 +664,10 @@ learning_rate_policy get_policy(char *s)
     if (strcmp(s, "exp")==0) return EXP;
     if (strcmp(s, "sigmoid")==0) return SIG;
     if (strcmp(s, "steps")==0) return STEPS;
+#ifndef USE_SGX
     fprintf(stderr, "Couldn't find policy %s, going with constant\n", s);
+#else
+#endif
     return CONSTANT;
 }
 
@@ -729,18 +760,28 @@ int is_network(section *s)
 
 network *parse_network_cfg(char *filename)
 {
+
+  my_printf("%s:%d@%s =>  parse_network_cfg is invoked\n", __FILE__,
+            __LINE__, __func__);
+
     list *sections = read_cfg(filename);
     node *n = sections->front;
-    if(!n) error("Config file has no sections");
+    if(!n) {
+      my_printf(ANSI_COLOR_RED   "%s:%d@%s =>  network is empty!" ANSI_COLOR_RESET   "\n", __FILE__,
+                __LINE__, __func__);
+      abort();
+    }
     network *net = make_network(sections->size - 1);
     net->gpu_index = gpu_index;
     size_params params;
-
     section *s = (section *)n->val;
     list *options = s->options;
-    if(!is_network(s)) error("First section must be [net] or [network]");
+    if(!is_network(s)) {
+      my_printf("%s:%d@%s =>  First section must be [net] or [network] \n", __FILE__,
+                __LINE__, __func__);
+      abort();
+    }
     parse_net_options(options, net);
-
     params.h = net->h;
     params.w = net->w;
     params.c = net->c;
@@ -748,15 +789,25 @@ network *parse_network_cfg(char *filename)
     params.batch = net->batch;
     params.time_steps = net->time_steps;
     params.net = net;
-
+    
     size_t workspace_size = 0;
     n = n->next;
     int count = 0;
+    my_printf("network type is :%s\n",s->type);
     free_section(s);
+    my_printf(ANSI_COLOR_GREEN   "%s:%d@%s =>  free_Section was successful" ANSI_COLOR_RESET "\n", __FILE__,
+              __LINE__, __func__);
+
+#ifndef USE_SGX
     fprintf(stderr, "layer     filters    size              input                output\n");
+#else
+#endif
     while(n){
         params.index = count;
+#ifndef USE_SGX
         fprintf(stderr, "%5d ", count);
+#else
+#endif
         s = (section *)n->val;
         options = s->options;
         layer l = {0};
@@ -787,13 +838,19 @@ network *parse_network_cfg(char *filename)
             l = parse_crop(options, params);
         }else if(lt == COST){
             l = parse_cost(options, params);
-        }else if(lt == REGION){
+        }
+#ifndef USE_SGX
+        else if(lt == REGION){
             l = parse_region(options, params);
         }else if(lt == YOLO){
-            l = parse_yolo(options, params);
+          l = parse_yolo(options, params);
         }else if(lt == DETECTION){
-            l = parse_detection(options, params);
-        }else if(lt == SOFTMAX){
+          l = parse_detection(options, params);
+        }
+#else
+
+#endif
+         else if(lt == SOFTMAX){
             l = parse_softmax(options, params);
             net->hierarchy = l.softmax_tree;
         }else if(lt == NORMALIZATION){
@@ -802,9 +859,14 @@ network *parse_network_cfg(char *filename)
             l = parse_batchnorm(options, params);
         }else if(lt == MAXPOOL){
             l = parse_maxpool(options, params);
-        }else if(lt == REORG){
+        }
+        #ifndef USE_SGX
+        else if(lt == REORG){
             l = parse_reorg(options, params);
-        }else if(lt == AVGPOOL){
+        }
+        #else
+        #endif
+        else if(lt == AVGPOOL){
             l = parse_avgpool(options, params);
         }else if(lt == ROUTE){
             l = parse_route(options, params, net);
@@ -821,8 +883,12 @@ network *parse_network_cfg(char *filename)
             l.delta_gpu = net->layers[count-1].delta_gpu;
 #endif
         }else{
+#ifndef USE_SGX
             fprintf(stderr, "Type not recognized: %s\n", s->type);
+#else
+#endif
         }
+        
         l.clip = net->clip;
         l.truth = option_find_int_quiet(options, "truth", 0);
         l.onlyforward = option_find_int_quiet(options, "onlyforward", 0);
@@ -870,427 +936,504 @@ network *parse_network_cfg(char *filename)
         net->workspace = calloc(1, workspace_size);
 #endif
     }
+    my_printf("%s:%d@%s =>  parse_network_cfg finished \n", __FILE__,
+              __LINE__, __func__);
     return net;
 }
 
+#ifndef USE_SGX
 list *read_cfg(char *filename)
 {
-    FILE *file = fopen(filename, "r");
-    if(file == 0) file_error(filename);
-    char *line;
-    int nu = 0;
-    list *options = make_list();
-    section *current = 0;
-    while((line=fgetl(file)) != 0){
-        ++ nu;
-        strip(line);
-        switch(line[0]){
-            case '[':
-                current = malloc(sizeof(section));
-                list_insert(options, current);
-                current->options = make_list();
-                current->type = line;
-                break;
-            case '\0':
-            case '#':
-            case ';':
-                free(line);
-                break;
-            default:
-                if(!read_option(line, current->options)){
-                    fprintf(stderr, "Config file error line %d, could parse: %s\n", nu, line);
-                    free(line);
-                }
-                break;
-        }
+  FILE *file = fopen(filename, "r");
+  if(file == 0) file_error(filename);
+  char *line;
+  int nu = 0;
+  list *options = make_list();
+  section *current = 0;
+  while((line=fgetl(file)) != 0){
+    ++ nu;
+    strip(line);
+    switch(line[0]){
+    case '[':
+      current = malloc(sizeof(section));
+      list_insert(options, current);
+      current->options = make_list();
+      current->type = line;
+      break;
+    case '\0':
+    case '#':
+    case ';':
+      free(line);
+      break;
+    default:
+      if(!read_option(line, current->options)){
+        fprintf(stderr, "Config file error line %d, could parse: %s\n", nu, line);
+        free(line);
+      }
+      break;
     }
-    fclose(file);
-    return options;
+  }
+  fclose(file);
+  return options;
+}
+#else
+
+/* filename is not an actual file name. It's a string containing contents offset
+ * of the file.
+ */
+list *read_cfg(char *filename) {
+
+  my_printf("%s:%d@%s =>  read_cfg is invoked\n", __FILE__, __LINE__, __func__);
+  char file_content[10000];
+  memset(file_content, 0, 10000);
+  memcpy(file_content, filename, strlen(filename) + 1);
+  /* my_printf("%s:%d@%s =>  read_cfg file content is %s\n", __FILE__, */
+  /*           __LINE__, __func__,file_content); */
+  char *line;
+  char *temp;
+  /* int nu = 0; */
+  list *options = make_list();
+  section *current = 0;
+  line = strtok(file_content, "\n");
+  while (line != NULL) {
+    /* ++ nu; */
+    strip(line);
+    char *line_heap = calloc((strlen(line) + 1), sizeof(char));
+    memcpy(line_heap, line, strlen(line) + 1);
+    line_heap[strlen(line)] = '\0';
+    /* my_printf("line is: %s : heap_line is %s\n",line,line_heap); */
+    /* switch (line[0]) { */
+    switch (line_heap[0]) {
+    case '[':
+      current = malloc(sizeof(section));
+      list_insert(options, current);
+      current->options = make_list();
+      current->type = line_heap;
+      break;
+    case '\0':
+    case '#':
+    case ';':
+      free(line_heap);
+      break;
+    default:
+      /* if (!read_option(line, current->options)) { */
+      if (!read_option(line_heap, current->options)) {
+        /* fprintf(stderr, "Config file error line %d, could parse: %s\n",
+         * nu,
+         * line); */
+        free(line_heap);
+        abort();
+      }
+      break;
+    }
+    line = strtok(NULL, "\n");
+  }
+  my_printf("%s:%d@%s =>  read_cfg is done. option size is %d; file "
+            "content is %s\n",
+            __FILE__, __LINE__, __func__, options->size, file_content);
+  return options;
 }
 
-void save_convolutional_weights_binary(layer l, FILE *fp)
-{
-#ifdef GPU
-    if(gpu_index >= 0){
-        pull_convolutional_layer(l);
-    }
 #endif
-    binarize_weights(l.weights, l.n, l.c*l.size*l.size, l.binary_weights);
-    int size = l.c*l.size*l.size;
-    int i, j, k;
-    fwrite(l.biases, sizeof(float), l.n, fp);
-    if (l.batch_normalize){
-        fwrite(l.scales, sizeof(float), l.n, fp);
-        fwrite(l.rolling_mean, sizeof(float), l.n, fp);
-        fwrite(l.rolling_variance, sizeof(float), l.n, fp);
-    }
-    for(i = 0; i < l.n; ++i){
-        float mean = l.binary_weights[i*size];
-        if(mean < 0) mean = -mean;
-        fwrite(&mean, sizeof(float), 1, fp);
-        for(j = 0; j < size/8; ++j){
-            int index = i*size + j*8;
-            unsigned char c = 0;
-            for(k = 0; k < 8; ++k){
-                if (j*8 + k >= size) break;
-                if (l.binary_weights[index + k] > 0) c = (c | 1<<k);
-            }
-            fwrite(&c, sizeof(char), 1, fp);
-        }
-    }
-}
 
-void save_convolutional_weights(layer l, FILE *fp)
-{
-    if(l.binary){
-        //save_convolutional_weights_binary(l, fp);
-        //return;
-    }
+#ifndef USE_SGX
+void save_convolutional_weights_binary(layer l, FILE *fp) {
 #ifdef GPU
-    if(gpu_index >= 0){
-        pull_convolutional_layer(l);
-    }
+  if (gpu_index >= 0) {
+    pull_convolutional_layer(l);
+  }
 #endif
-    int num = l.nweights;
-    fwrite(l.biases, sizeof(float), l.n, fp);
-    if (l.batch_normalize){
-        fwrite(l.scales, sizeof(float), l.n, fp);
-        fwrite(l.rolling_mean, sizeof(float), l.n, fp);
-        fwrite(l.rolling_variance, sizeof(float), l.n, fp);
+  binarize_weights(l.weights, l.n, l.c * l.size * l.size, l.binary_weights);
+  int size = l.c * l.size * l.size;
+  int i, j, k;
+  fwrite(l.biases, sizeof(float), l.n, fp);
+  if (l.batch_normalize) {
+    fwrite(l.scales, sizeof(float), l.n, fp);
+    fwrite(l.rolling_mean, sizeof(float), l.n, fp);
+    fwrite(l.rolling_variance, sizeof(float), l.n, fp);
+  }
+  for (i = 0; i < l.n; ++i) {
+    float mean = l.binary_weights[i * size];
+    if (mean < 0)
+      mean = -mean;
+    fwrite(&mean, sizeof(float), 1, fp);
+    for (j = 0; j < size / 8; ++j) {
+      int index = i * size + j * 8;
+      unsigned char c = 0;
+      for (k = 0; k < 8; ++k) {
+        if (j * 8 + k >= size)
+          break;
+        if (l.binary_weights[index + k] > 0)
+          c = (c | 1 << k);
+      }
+      fwrite(&c, sizeof(char), 1, fp);
     }
-    fwrite(l.weights, sizeof(float), num, fp);
+  }
 }
-
-void save_batchnorm_weights(layer l, FILE *fp)
-{
-#ifdef GPU
-    if(gpu_index >= 0){
-        pull_batchnorm_layer(l);
-    }
+#else
 #endif
-    fwrite(l.scales, sizeof(float), l.c, fp);
-    fwrite(l.rolling_mean, sizeof(float), l.c, fp);
-    fwrite(l.rolling_variance, sizeof(float), l.c, fp);
-}
 
-void save_connected_weights(layer l, FILE *fp)
-{
+#ifndef USE_SGX
+void save_convolutional_weights(layer l, FILE *fp) {
+  if (l.binary) {
+    // save_convolutional_weights_binary(l, fp);
+    // return;
+  }
 #ifdef GPU
-    if(gpu_index >= 0){
-        pull_connected_layer(l);
-    }
+  if (gpu_index >= 0) {
+    pull_convolutional_layer(l);
+  }
 #endif
-    fwrite(l.biases, sizeof(float), l.outputs, fp);
-    fwrite(l.weights, sizeof(float), l.outputs*l.inputs, fp);
-    if (l.batch_normalize){
-        fwrite(l.scales, sizeof(float), l.outputs, fp);
-        fwrite(l.rolling_mean, sizeof(float), l.outputs, fp);
-        fwrite(l.rolling_variance, sizeof(float), l.outputs, fp);
-    }
+  int num = l.nweights;
+  fwrite(l.biases, sizeof(float), l.n, fp);
+  if (l.batch_normalize) {
+    fwrite(l.scales, sizeof(float), l.n, fp);
+    fwrite(l.rolling_mean, sizeof(float), l.n, fp);
+    fwrite(l.rolling_variance, sizeof(float), l.n, fp);
+  }
+  fwrite(l.weights, sizeof(float), num, fp);
 }
 
-void save_weights_upto(network *net, char *filename, int cutoff)
-{
+void save_batchnorm_weights(layer l, FILE *fp) {
 #ifdef GPU
-    if(net->gpu_index >= 0){
-        cuda_set_device(net->gpu_index);
-    }
+  if (gpu_index >= 0) {
+    pull_batchnorm_layer(l);
+  }
 #endif
-    fprintf(stderr, "Saving weights to %s\n", filename);
-    FILE *fp = fopen(filename, "wb");
-    if(!fp) file_error(filename);
+  fwrite(l.scales, sizeof(float), l.c, fp);
+  fwrite(l.rolling_mean, sizeof(float), l.c, fp);
+  fwrite(l.rolling_variance, sizeof(float), l.c, fp);
+}
 
-    int major = 0;
-    int minor = 2;
-    int revision = 0;
-    fwrite(&major, sizeof(int), 1, fp);
-    fwrite(&minor, sizeof(int), 1, fp);
-    fwrite(&revision, sizeof(int), 1, fp);
-    fwrite(net->seen, sizeof(size_t), 1, fp);
-
-    int i;
-    for(i = 0; i < net->n && i < cutoff; ++i){
-        layer l = net->layers[i];
-        if (l.dontsave) continue;
-        if(l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL){
-            save_convolutional_weights(l, fp);
-        } if(l.type == CONNECTED){
-            save_connected_weights(l, fp);
-        } if(l.type == BATCHNORM){
-            save_batchnorm_weights(l, fp);
-        } if(l.type == RNN){
-            save_connected_weights(*(l.input_layer), fp);
-            save_connected_weights(*(l.self_layer), fp);
-            save_connected_weights(*(l.output_layer), fp);
-        } if (l.type == LSTM) {
-            save_connected_weights(*(l.wi), fp);
-            save_connected_weights(*(l.wf), fp);
-            save_connected_weights(*(l.wo), fp);
-            save_connected_weights(*(l.wg), fp);
-            save_connected_weights(*(l.ui), fp);
-            save_connected_weights(*(l.uf), fp);
-            save_connected_weights(*(l.uo), fp);
-            save_connected_weights(*(l.ug), fp);
-        } if (l.type == GRU) {
-            if(1){
-                save_connected_weights(*(l.wz), fp);
-                save_connected_weights(*(l.wr), fp);
-                save_connected_weights(*(l.wh), fp);
-                save_connected_weights(*(l.uz), fp);
-                save_connected_weights(*(l.ur), fp);
-                save_connected_weights(*(l.uh), fp);
-            }else{
-                save_connected_weights(*(l.reset_layer), fp);
-                save_connected_weights(*(l.update_layer), fp);
-                save_connected_weights(*(l.state_layer), fp);
-            }
-        }  if(l.type == CRNN){
-            save_convolutional_weights(*(l.input_layer), fp);
-            save_convolutional_weights(*(l.self_layer), fp);
-            save_convolutional_weights(*(l.output_layer), fp);
-        } if(l.type == LOCAL){
+void save_connected_weights(layer l, FILE *fp) {
 #ifdef GPU
-            if(gpu_index >= 0){
-                pull_local_layer(l);
-            }
+  if (gpu_index >= 0) {
+    pull_connected_layer(l);
+  }
 #endif
-            int locations = l.out_w*l.out_h;
-            int size = l.size*l.size*l.c*l.n*locations;
-            fwrite(l.biases, sizeof(float), l.outputs, fp);
-            fwrite(l.weights, sizeof(float), size, fp);
-        }
-    }
-    fclose(fp);
-}
-void save_weights(network *net, char *filename)
-{
-    save_weights_upto(net, filename, net->n);
+  fwrite(l.biases, sizeof(float), l.outputs, fp);
+  fwrite(l.weights, sizeof(float), l.outputs * l.inputs, fp);
+  if (l.batch_normalize) {
+    fwrite(l.scales, sizeof(float), l.outputs, fp);
+    fwrite(l.rolling_mean, sizeof(float), l.outputs, fp);
+    fwrite(l.rolling_variance, sizeof(float), l.outputs, fp);
+  }
 }
 
-void transpose_matrix(float *a, int rows, int cols)
-{
-    float *transpose = calloc(rows*cols, sizeof(float));
-    int x, y;
-    for(x = 0; x < rows; ++x){
-        for(y = 0; y < cols; ++y){
-            transpose[y*rows + x] = a[x*cols + y];
-        }
-    }
-    memcpy(a, transpose, rows*cols*sizeof(float));
-    free(transpose);
-}
-
-void load_connected_weights(layer l, FILE *fp, int transpose)
-{
-    fread(l.biases, sizeof(float), l.outputs, fp);
-    fread(l.weights, sizeof(float), l.outputs*l.inputs, fp);
-    if(transpose){
-        transpose_matrix(l.weights, l.inputs, l.outputs);
-    }
-    //printf("Biases: %f mean %f variance\n", mean_array(l.biases, l.outputs), variance_array(l.biases, l.outputs));
-    //printf("Weights: %f mean %f variance\n", mean_array(l.weights, l.outputs*l.inputs), variance_array(l.weights, l.outputs*l.inputs));
-    if (l.batch_normalize && (!l.dontloadscales)){
-        fread(l.scales, sizeof(float), l.outputs, fp);
-        fread(l.rolling_mean, sizeof(float), l.outputs, fp);
-        fread(l.rolling_variance, sizeof(float), l.outputs, fp);
-        //printf("Scales: %f mean %f variance\n", mean_array(l.scales, l.outputs), variance_array(l.scales, l.outputs));
-        //printf("rolling_mean: %f mean %f variance\n", mean_array(l.rolling_mean, l.outputs), variance_array(l.rolling_mean, l.outputs));
-        //printf("rolling_variance: %f mean %f variance\n", mean_array(l.rolling_variance, l.outputs), variance_array(l.rolling_variance, l.outputs));
-    }
+void save_weights_upto(network *net, char *filename, int cutoff) {
 #ifdef GPU
-    if(gpu_index >= 0){
-        push_connected_layer(l);
-    }
+  if (net->gpu_index >= 0) {
+    cuda_set_device(net->gpu_index);
+  }
 #endif
-}
+  fprintf(stderr, "Saving weights to %s\n", filename);
+  FILE *fp = fopen(filename, "wb");
+  if (!fp)
+    file_error(filename);
 
-void load_batchnorm_weights(layer l, FILE *fp)
-{
-    fread(l.scales, sizeof(float), l.c, fp);
-    fread(l.rolling_mean, sizeof(float), l.c, fp);
-    fread(l.rolling_variance, sizeof(float), l.c, fp);
-#ifdef GPU
-    if(gpu_index >= 0){
-        push_batchnorm_layer(l);
+  int major = 0;
+  int minor = 2;
+  int revision = 0;
+  fwrite(&major, sizeof(int), 1, fp);
+  fwrite(&minor, sizeof(int), 1, fp);
+  fwrite(&revision, sizeof(int), 1, fp);
+  fwrite(net->seen, sizeof(size_t), 1, fp);
+
+  int i;
+  for (i = 0; i < net->n && i < cutoff; ++i) {
+    layer l = net->layers[i];
+    if (l.dontsave)
+      continue;
+    if (l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL) {
+      save_convolutional_weights(l, fp);
     }
+    if (l.type == CONNECTED) {
+      save_connected_weights(l, fp);
+    }
+    if (l.type == BATCHNORM) {
+      save_batchnorm_weights(l, fp);
+    }
+    if (l.type == RNN) {
+      save_connected_weights(*(l.input_layer), fp);
+      save_connected_weights(*(l.self_layer), fp);
+      save_connected_weights(*(l.output_layer), fp);
+    }
+    if (l.type == LSTM) {
+      save_connected_weights(*(l.wi), fp);
+      save_connected_weights(*(l.wf), fp);
+      save_connected_weights(*(l.wo), fp);
+      save_connected_weights(*(l.wg), fp);
+      save_connected_weights(*(l.ui), fp);
+      save_connected_weights(*(l.uf), fp);
+      save_connected_weights(*(l.uo), fp);
+      save_connected_weights(*(l.ug), fp);
+    }
+    if (l.type == GRU) {
+      if (1) {
+        save_connected_weights(*(l.wz), fp);
+        save_connected_weights(*(l.wr), fp);
+        save_connected_weights(*(l.wh), fp);
+        save_connected_weights(*(l.uz), fp);
+        save_connected_weights(*(l.ur), fp);
+        save_connected_weights(*(l.uh), fp);
+      } else {
+        save_connected_weights(*(l.reset_layer), fp);
+        save_connected_weights(*(l.update_layer), fp);
+        save_connected_weights(*(l.state_layer), fp);
+      }
+    }
+    if (l.type == CRNN) {
+      save_convolutional_weights(*(l.input_layer), fp);
+      save_convolutional_weights(*(l.self_layer), fp);
+      save_convolutional_weights(*(l.output_layer), fp);
+    }
+    if (l.type == LOCAL) {
+#ifdef GPU
+      if (gpu_index >= 0) {
+        pull_local_layer(l);
+      }
 #endif
+      int locations = l.out_w * l.out_h;
+      int size = l.size * l.size * l.c * l.n * locations;
+      fwrite(l.biases, sizeof(float), l.outputs, fp);
+      fwrite(l.weights, sizeof(float), size, fp);
+    }
+  }
+  fclose(fp);
 }
-
-void load_convolutional_weights_binary(layer l, FILE *fp)
-{
-    fread(l.biases, sizeof(float), l.n, fp);
-    if (l.batch_normalize && (!l.dontloadscales)){
-        fread(l.scales, sizeof(float), l.n, fp);
-        fread(l.rolling_mean, sizeof(float), l.n, fp);
-        fread(l.rolling_variance, sizeof(float), l.n, fp);
-    }
-    int size = l.c*l.size*l.size;
-    int i, j, k;
-    for(i = 0; i < l.n; ++i){
-        float mean = 0;
-        fread(&mean, sizeof(float), 1, fp);
-        for(j = 0; j < size/8; ++j){
-            int index = i*size + j*8;
-            unsigned char c = 0;
-            fread(&c, sizeof(char), 1, fp);
-            for(k = 0; k < 8; ++k){
-                if (j*8 + k >= size) break;
-                l.weights[index + k] = (c & 1<<k) ? mean : -mean;
-            }
-        }
-    }
-#ifdef GPU
-    if(gpu_index >= 0){
-        push_convolutional_layer(l);
-    }
+void save_weights(network *net, char *filename) {
+  save_weights_upto(net, filename, net->n);
+}
+#else
 #endif
+
+void transpose_matrix(float *a, int rows, int cols) {
+  float *transpose = calloc(rows * cols, sizeof(float));
+  int x, y;
+  for (x = 0; x < rows; ++x) {
+    for (y = 0; y < cols; ++y) {
+      transpose[y * rows + x] = a[x * cols + y];
+    }
+  }
+  memcpy(a, transpose, rows * cols * sizeof(float));
+  free(transpose);
 }
 
-void load_convolutional_weights(layer l, FILE *fp)
-{
-    if(l.binary){
-        //load_convolutional_weights_binary(l, fp);
-        //return;
-    }
-    int num = l.nweights;
-    fread(l.biases, sizeof(float), l.n, fp);
-    if (l.batch_normalize && (!l.dontloadscales)){
-        fread(l.scales, sizeof(float), l.n, fp);
-        fread(l.rolling_mean, sizeof(float), l.n, fp);
-        fread(l.rolling_variance, sizeof(float), l.n, fp);
-        if(0){
-            int i;
-            for(i = 0; i < l.n; ++i){
-                printf("%g, ", l.rolling_mean[i]);
-            }
-            printf("\n");
-            for(i = 0; i < l.n; ++i){
-                printf("%g, ", l.rolling_variance[i]);
-            }
-            printf("\n");
-        }
-        if(0){
-            fill_cpu(l.n, 0, l.rolling_mean, 1);
-            fill_cpu(l.n, 0, l.rolling_variance, 1);
-        }
-        if(0){
-            int i;
-            for(i = 0; i < l.n; ++i){
-                printf("%g, ", l.rolling_mean[i]);
-            }
-            printf("\n");
-            for(i = 0; i < l.n; ++i){
-                printf("%g, ", l.rolling_variance[i]);
-            }
-            printf("\n");
-        }
-    }
-    fread(l.weights, sizeof(float), num, fp);
-    //if(l.c == 3) scal_cpu(num, 1./256, l.weights, 1);
-    if (l.flipped) {
-        transpose_matrix(l.weights, l.c*l.size*l.size, l.n);
-    }
-    //if (l.binary) binarize_weights(l.weights, l.n, l.c*l.size*l.size, l.weights);
+#ifndef USE_SGX
+void load_connected_weights(layer l, FILE *fp, int transpose) {
+  fread(l.biases, sizeof(float), l.outputs, fp);
+  fread(l.weights, sizeof(float), l.outputs * l.inputs, fp);
+  if (transpose) {
+    transpose_matrix(l.weights, l.inputs, l.outputs);
+  }
+  // printf("Biases: %f mean %f variance\n", mean_array(l.biases, l.outputs),
+  // variance_array(l.biases, l.outputs));
+  // printf("Weights: %f mean %f variance\n", mean_array(l.weights,
+  // l.outputs*l.inputs), variance_array(l.weights, l.outputs*l.inputs));
+  if (l.batch_normalize && (!l.dontloadscales)) {
+    fread(l.scales, sizeof(float), l.outputs, fp);
+    fread(l.rolling_mean, sizeof(float), l.outputs, fp);
+    fread(l.rolling_variance, sizeof(float), l.outputs, fp);
+    // printf("Scales: %f mean %f variance\n", mean_array(l.scales, l.outputs),
+    // variance_array(l.scales, l.outputs));
+    // printf("rolling_mean: %f mean %f variance\n", mean_array(l.rolling_mean,
+    // l.outputs), variance_array(l.rolling_mean, l.outputs));
+    // printf("rolling_variance: %f mean %f variance\n",
+    // mean_array(l.rolling_variance, l.outputs),
+    // variance_array(l.rolling_variance, l.outputs));
+  }
 #ifdef GPU
-    if(gpu_index >= 0){
-        push_convolutional_layer(l);
-    }
+  if (gpu_index >= 0) {
+    push_connected_layer(l);
+  }
 #endif
 }
 
-
-void load_weights_upto(network *net, char *filename, int start, int cutoff)
-{
+void load_batchnorm_weights(layer l, FILE *fp) {
+  fread(l.scales, sizeof(float), l.c, fp);
+  fread(l.rolling_mean, sizeof(float), l.c, fp);
+  fread(l.rolling_variance, sizeof(float), l.c, fp);
 #ifdef GPU
-    if(net->gpu_index >= 0){
-        cuda_set_device(net->gpu_index);
-    }
+  if (gpu_index >= 0) {
+    push_batchnorm_layer(l);
+  }
 #endif
-    fprintf(stderr, "Loading weights from %s...", filename);
-    fflush(stdout);
-    FILE *fp = fopen(filename, "rb");
-    if(!fp) file_error(filename);
-
-    int major;
-    int minor;
-    int revision;
-    fread(&major, sizeof(int), 1, fp);
-    fread(&minor, sizeof(int), 1, fp);
-    fread(&revision, sizeof(int), 1, fp);
-    if ((major*10 + minor) >= 2 && major < 1000 && minor < 1000){
-        fread(net->seen, sizeof(size_t), 1, fp);
-    } else {
-        int iseen = 0;
-        fread(&iseen, sizeof(int), 1, fp);
-        *net->seen = iseen;
-    }
-    int transpose = (major > 1000) || (minor > 1000);
-
-    int i;
-    for(i = start; i < net->n && i < cutoff; ++i){
-        layer l = net->layers[i];
-        if (l.dontload) continue;
-        if(l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL){
-            load_convolutional_weights(l, fp);
-        }
-        if(l.type == CONNECTED){
-            load_connected_weights(l, fp, transpose);
-        }
-        if(l.type == BATCHNORM){
-            load_batchnorm_weights(l, fp);
-        }
-        if(l.type == CRNN){
-            load_convolutional_weights(*(l.input_layer), fp);
-            load_convolutional_weights(*(l.self_layer), fp);
-            load_convolutional_weights(*(l.output_layer), fp);
-        }
-        if(l.type == RNN){
-            load_connected_weights(*(l.input_layer), fp, transpose);
-            load_connected_weights(*(l.self_layer), fp, transpose);
-            load_connected_weights(*(l.output_layer), fp, transpose);
-        }
-        if (l.type == LSTM) {
-            load_connected_weights(*(l.wi), fp, transpose);
-            load_connected_weights(*(l.wf), fp, transpose);
-            load_connected_weights(*(l.wo), fp, transpose);
-            load_connected_weights(*(l.wg), fp, transpose);
-            load_connected_weights(*(l.ui), fp, transpose);
-            load_connected_weights(*(l.uf), fp, transpose);
-            load_connected_weights(*(l.uo), fp, transpose);
-            load_connected_weights(*(l.ug), fp, transpose);
-        }
-        if (l.type == GRU) {
-            if(1){
-                load_connected_weights(*(l.wz), fp, transpose);
-                load_connected_weights(*(l.wr), fp, transpose);
-                load_connected_weights(*(l.wh), fp, transpose);
-                load_connected_weights(*(l.uz), fp, transpose);
-                load_connected_weights(*(l.ur), fp, transpose);
-                load_connected_weights(*(l.uh), fp, transpose);
-            }else{
-                load_connected_weights(*(l.reset_layer), fp, transpose);
-                load_connected_weights(*(l.update_layer), fp, transpose);
-                load_connected_weights(*(l.state_layer), fp, transpose);
-            }
-        }
-        if(l.type == LOCAL){
-            int locations = l.out_w*l.out_h;
-            int size = l.size*l.size*l.c*l.n*locations;
-            fread(l.biases, sizeof(float), l.outputs, fp);
-            fread(l.weights, sizeof(float), size, fp);
-#ifdef GPU
-            if(gpu_index >= 0){
-                push_local_layer(l);
-            }
-#endif
-        }
-    }
-    fprintf(stderr, "Done!\n");
-    fclose(fp);
 }
 
-void load_weights(network *net, char *filename)
-{
-    load_weights_upto(net, filename, 0, net->n);
+void load_convolutional_weights_binary(layer l, FILE *fp) {
+  fread(l.biases, sizeof(float), l.n, fp);
+  if (l.batch_normalize && (!l.dontloadscales)) {
+    fread(l.scales, sizeof(float), l.n, fp);
+    fread(l.rolling_mean, sizeof(float), l.n, fp);
+    fread(l.rolling_variance, sizeof(float), l.n, fp);
+  }
+  int size = l.c * l.size * l.size;
+  int i, j, k;
+  for (i = 0; i < l.n; ++i) {
+    float mean = 0;
+    fread(&mean, sizeof(float), 1, fp);
+    for (j = 0; j < size / 8; ++j) {
+      int index = i * size + j * 8;
+      unsigned char c = 0;
+      fread(&c, sizeof(char), 1, fp);
+      for (k = 0; k < 8; ++k) {
+        if (j * 8 + k >= size)
+          break;
+        l.weights[index + k] = (c & 1 << k) ? mean : -mean;
+      }
+    }
+  }
+#ifdef GPU
+  if (gpu_index >= 0) {
+    push_convolutional_layer(l);
+  }
+#endif
 }
 
+void load_convolutional_weights(layer l, FILE *fp) {
+  if (l.binary) {
+    // load_convolutional_weights_binary(l, fp);
+    // return;
+  }
+  int num = l.nweights;
+  fread(l.biases, sizeof(float), l.n, fp);
+  if (l.batch_normalize && (!l.dontloadscales)) {
+    fread(l.scales, sizeof(float), l.n, fp);
+    fread(l.rolling_mean, sizeof(float), l.n, fp);
+    fread(l.rolling_variance, sizeof(float), l.n, fp);
+    if (0) {
+      int i;
+      for (i = 0; i < l.n; ++i) {
+        printf("%g, ", l.rolling_mean[i]);
+      }
+      printf("\n");
+      for (i = 0; i < l.n; ++i) {
+        printf("%g, ", l.rolling_variance[i]);
+      }
+      printf("\n");
+    }
+    if (0) {
+      fill_cpu(l.n, 0, l.rolling_mean, 1);
+      fill_cpu(l.n, 0, l.rolling_variance, 1);
+    }
+    if (0) {
+      int i;
+      for (i = 0; i < l.n; ++i) {
+        printf("%g, ", l.rolling_mean[i]);
+      }
+      printf("\n");
+      for (i = 0; i < l.n; ++i) {
+        printf("%g, ", l.rolling_variance[i]);
+      }
+      printf("\n");
+    }
+  }
+  fread(l.weights, sizeof(float), num, fp);
+  // if(l.c == 3) scal_cpu(num, 1./256, l.weights, 1);
+  if (l.flipped) {
+    transpose_matrix(l.weights, l.c * l.size * l.size, l.n);
+  }
+// if (l.binary) binarize_weights(l.weights, l.n, l.c*l.size*l.size, l.weights);
+#ifdef GPU
+  if (gpu_index >= 0) {
+    push_convolutional_layer(l);
+  }
+#endif
+}
+
+void load_weights_upto(network *net, char *filename, int start, int cutoff) {
+#ifdef GPU
+  if (net->gpu_index >= 0) {
+    cuda_set_device(net->gpu_index);
+  }
+#endif
+  fprintf(stderr, "Loading weights from %s...", filename);
+  fflush(stdout);
+  FILE *fp = fopen(filename, "rb");
+  if (!fp)
+    file_error(filename);
+
+  int major;
+  int minor;
+  int revision;
+  fread(&major, sizeof(int), 1, fp);
+  fread(&minor, sizeof(int), 1, fp);
+  fread(&revision, sizeof(int), 1, fp);
+  if ((major * 10 + minor) >= 2 && major < 1000 && minor < 1000) {
+    fread(net->seen, sizeof(size_t), 1, fp);
+  } else {
+    int iseen = 0;
+    fread(&iseen, sizeof(int), 1, fp);
+    *net->seen = iseen;
+  }
+  int transpose = (major > 1000) || (minor > 1000);
+
+  int i;
+  for (i = start; i < net->n && i < cutoff; ++i) {
+    layer l = net->layers[i];
+    if (l.dontload)
+      continue;
+    if (l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL) {
+      load_convolutional_weights(l, fp);
+    }
+    if (l.type == CONNECTED) {
+      load_connected_weights(l, fp, transpose);
+    }
+    if (l.type == BATCHNORM) {
+      load_batchnorm_weights(l, fp);
+    }
+    if (l.type == CRNN) {
+      load_convolutional_weights(*(l.input_layer), fp);
+      load_convolutional_weights(*(l.self_layer), fp);
+      load_convolutional_weights(*(l.output_layer), fp);
+    }
+    if (l.type == RNN) {
+      load_connected_weights(*(l.input_layer), fp, transpose);
+      load_connected_weights(*(l.self_layer), fp, transpose);
+      load_connected_weights(*(l.output_layer), fp, transpose);
+    }
+    if (l.type == LSTM) {
+      load_connected_weights(*(l.wi), fp, transpose);
+      load_connected_weights(*(l.wf), fp, transpose);
+      load_connected_weights(*(l.wo), fp, transpose);
+      load_connected_weights(*(l.wg), fp, transpose);
+      load_connected_weights(*(l.ui), fp, transpose);
+      load_connected_weights(*(l.uf), fp, transpose);
+      load_connected_weights(*(l.uo), fp, transpose);
+      load_connected_weights(*(l.ug), fp, transpose);
+    }
+    if (l.type == GRU) {
+      if (1) {
+        load_connected_weights(*(l.wz), fp, transpose);
+        load_connected_weights(*(l.wr), fp, transpose);
+        load_connected_weights(*(l.wh), fp, transpose);
+        load_connected_weights(*(l.uz), fp, transpose);
+        load_connected_weights(*(l.ur), fp, transpose);
+        load_connected_weights(*(l.uh), fp, transpose);
+      } else {
+        load_connected_weights(*(l.reset_layer), fp, transpose);
+        load_connected_weights(*(l.update_layer), fp, transpose);
+        load_connected_weights(*(l.state_layer), fp, transpose);
+      }
+    }
+    if (l.type == LOCAL) {
+      int locations = l.out_w * l.out_h;
+      int size = l.size * l.size * l.c * l.n * locations;
+      fread(l.biases, sizeof(float), l.outputs, fp);
+      fread(l.weights, sizeof(float), size, fp);
+#ifdef GPU
+      if (gpu_index >= 0) {
+        push_local_layer(l);
+      }
+#endif
+    }
+  }
+  fprintf(stderr, "Done!\n");
+  fclose(fp);
+}
+
+void load_weights(network *net, char *filename) {
+  load_weights_upto(net, filename, 0, net->n);
+}
+#else
+#endif

@@ -5,11 +5,15 @@
 #include <stdio.h>
 #include <math.h>
 
+#ifndef USE_SGX
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#else
+#endif
 int windows = 0;
 
 float colors[6][3] = { {1,0,1}, {0,0,1},{0,1,1},{0,1,0},{1,1,0},{1,0,0} };
@@ -220,22 +224,26 @@ void draw_bbox(image a, box bbox, int w, float r, float g, float b)
     }
 }
 
+#ifndef USE_SGX
 image **load_alphabet()
 {
-    int i, j;
-    const int nsize = 8;
-    image **alphabets = calloc(nsize, sizeof(image));
-    for(j = 0; j < nsize; ++j){
-        alphabets[j] = calloc(128, sizeof(image));
-        for(i = 32; i < 127; ++i){
-            char buff[256];
-            sprintf(buff, "data/labels/%d_%d.png", i, j);
-            alphabets[j][i] = load_image_color(buff, 0, 0);
-        }
+  int i, j;
+  const int nsize = 8;
+  image **alphabets = calloc(nsize, sizeof(image));
+  for(j = 0; j < nsize; ++j){
+    alphabets[j] = calloc(128, sizeof(image));
+    for(i = 32; i < 127; ++i){
+      char buff[256];
+      sprintf(buff, "data/labels/%d_%d.png", i, j);
+      alphabets[j][i] = load_image_color(buff, 0, 0);
     }
-    return alphabets;
+  }
+  return alphabets;
 }
+#else
+#endif
 
+#ifndef USE_SGX
 void draw_detections(image im, detection *dets, int num, float thresh, char **names, image **alphabet, int classes)
 {
     int i,j;
@@ -308,6 +316,8 @@ void draw_detections(image im, detection *dets, int num, float thresh, char **na
         }
     }
 }
+#else
+#endif
 
 void transpose_image(image im)
 {
@@ -572,20 +582,23 @@ void show_image_cv(image p, const char *name, IplImage *disp)
 }
 #endif
 
+#ifndef USE_SGX
 void show_image(image p, const char *name)
 {
 #ifdef OPENCV
-    IplImage *disp = cvCreateImage(cvSize(p.w,p.h), IPL_DEPTH_8U, p.c);
-    image copy = copy_image(p);
-    constrain_image(copy);
-    show_image_cv(copy, name, disp);
-    free_image(copy);
-    cvReleaseImage(&disp);
+  IplImage *disp = cvCreateImage(cvSize(p.w,p.h), IPL_DEPTH_8U, p.c);
+  image copy = copy_image(p);
+  constrain_image(copy);
+  show_image_cv(copy, name, disp);
+  free_image(copy);
+  cvReleaseImage(&disp);
 #else
-    fprintf(stderr, "Not compiled with OpenCV, saving to %s.png instead\n", name);
-    save_image(p, name);
+  fprintf(stderr, "Not compiled with OpenCV, saving to %s.png instead\n", name);
+  save_image(p, name);
 #endif
 }
+#else
+#endif
 
 #ifdef OPENCV
 
@@ -693,51 +706,53 @@ void save_image_jpg(image p, const char *name)
 }
 #endif
 
+#ifndef USE_SGX
 void save_image_png(image im, const char *name)
 {
-    char buff[256];
-    //sprintf(buff, "%s (%d)", name, windows);
-    sprintf(buff, "%s.png", name);
-    unsigned char *data = calloc(im.w*im.h*im.c, sizeof(char));
-    int i,k;
-    for(k = 0; k < im.c; ++k){
-        for(i = 0; i < im.w*im.h; ++i){
-            data[i*im.c+k] = (unsigned char) (255*im.data[i + k*im.w*im.h]);
-        }
+  char buff[256];
+  //sprintf(buff, "%s (%d)", name, windows);
+  sprintf(buff, "%s.png", name);
+  unsigned char *data = calloc(im.w*im.h*im.c, sizeof(char));
+  int i,k;
+  for(k = 0; k < im.c; ++k){
+    for(i = 0; i < im.w*im.h; ++i){
+      data[i*im.c+k] = (unsigned char) (255*im.data[i + k*im.w*im.h]);
     }
-    int success = stbi_write_png(buff, im.w, im.h, im.c, data, im.w*im.c);
-    free(data);
-    if(!success) fprintf(stderr, "Failed to write image %s\n", buff);
+  }
+  int success = stbi_write_png(buff, im.w, im.h, im.c, data, im.w*im.c);
+  free(data);
+  if(!success) fprintf(stderr, "Failed to write image %s\n", buff);
 }
-
 void save_image(image im, const char *name)
 {
 #ifdef OPENCV
-    save_image_jpg(im, name);
+  save_image_jpg(im, name);
 #else
-    save_image_png(im, name);
+  save_image_png(im, name);
 #endif
 }
 
 
 void show_image_layers(image p, char *name)
 {
-    int i;
-    char buff[256];
-    for(i = 0; i < p.c; ++i){
-        sprintf(buff, "%s - Layer %d", name, i);
-        image layer = get_image_layer(p, i);
-        show_image(layer, buff);
-        free_image(layer);
-    }
+  int i;
+  char buff[256];
+  for(i = 0; i < p.c; ++i){
+    sprintf(buff, "%s - Layer %d", name, i);
+    image layer = get_image_layer(p, i);
+    show_image(layer, buff);
+    free_image(layer);
+  }
 }
 
 void show_image_collapsed(image p, char *name)
 {
-    image c = collapse_image_layers(p, 1);
-    show_image(c, name);
-    free_image(c);
+  image c = collapse_image_layers(p, 1);
+  show_image(c, name);
+  free_image(c);
 }
+#else
+#endif
 
 image make_empty_image(int w, int h, int c)
 {
@@ -900,46 +915,58 @@ int best_3d_shift(image a, image b, int min, int max)
             best_distance = d;
             best = i;
         }
+#ifndef USE_SGX
         printf("%d %f\n", i, d);
+#else
+#endif
         free_image(c);
     }
     return best;
 }
 
+#ifndef USE_SGX
 void composite_3d(char *f1, char *f2, char *out, int delta)
 {
-    if(!out) out = "out";
-    image a = load_image(f1, 0,0,0);
-    image b = load_image(f2, 0,0,0);
-    int shift = best_3d_shift_r(a, b, -a.h/100, a.h/100);
+  if(!out) out = "out";
+  image a = load_image(f1, 0,0,0);
+  image b = load_image(f2, 0,0,0);
+  int shift = best_3d_shift_r(a, b, -a.h/100, a.h/100);
 
-    image c1 = crop_image(b, 10, shift, b.w, b.h);
-    float d1 = dist_array(c1.data, a.data, a.w*a.h*a.c, 100);
-    image c2 = crop_image(b, -10, shift, b.w, b.h);
-    float d2 = dist_array(c2.data, a.data, a.w*a.h*a.c, 100);
+  image c1 = crop_image(b, 10, shift, b.w, b.h);
+  float d1 = dist_array(c1.data, a.data, a.w*a.h*a.c, 100);
+  image c2 = crop_image(b, -10, shift, b.w, b.h);
+  float d2 = dist_array(c2.data, a.data, a.w*a.h*a.c, 100);
 
-    if(d2 < d1 && 0){
-        image swap = a;
-        a = b;
-        b = swap;
-        shift = -shift;
-        printf("swapped, %d\n", shift);
-    }
-    else{
-        printf("%d\n", shift);
-    }
-
-    image c = crop_image(b, delta, shift, a.w, a.h);
-    int i;
-    for(i = 0; i < c.w*c.h; ++i){
-        c.data[i] = a.data[i];
-    }
-#ifdef OPENCV
-    save_image_jpg(c, out);
+  if(d2 < d1 && 0){
+    image swap = a;
+    a = b;
+    b = swap;
+    shift = -shift;
+#ifndef USE_SGX
+    printf("swapped, %d\n", shift);
 #else
-    save_image(c, out);
+#endif
+  }
+  else{
+#ifndef USE_SGX
+    printf("%d\n", shift);
+#else
+#endif
+  }
+
+  image c = crop_image(b, delta, shift, a.w, a.h);
+  int i;
+  for(i = 0; i < c.w*c.h; ++i){
+    c.data[i] = a.data[i];
+  }
+#ifdef OPENCV
+  save_image_jpg(c, out);
+#else
+  save_image(c, out);
 #endif
 }
+#else
+#endif
 
 void letterbox_image_into(image im, int w, int h, image boxed)
 {
@@ -1388,7 +1415,7 @@ image resize_image(image im, int w, int h)
     return resized;
 }
 
-
+#ifndef USE_SGX
 void test_resize(char *filename)
 {
     image im = load_image(filename, 0,0, 3);
@@ -1438,51 +1465,56 @@ void test_resize(char *filename)
 #endif
 }
 
-
 image load_image_stb(char *filename, int channels)
 {
-    int w, h, c;
-    unsigned char *data = stbi_load(filename, &w, &h, &c, channels);
-    if (!data) {
-        fprintf(stderr, "Cannot load image \"%s\"\nSTB Reason: %s\n", filename, stbi_failure_reason());
-        exit(0);
+  int w, h, c;
+  unsigned char *data = stbi_load(filename, &w, &h, &c, channels);
+  if (!data) {
+    fprintf(stderr, "Cannot load image \"%s\"\nSTB Reason: %s\n", filename, stbi_failure_reason());
+    exit(0);
+  }
+  if(channels) c = channels;
+  int i,j,k;
+  image im = make_image(w, h, c);
+  for(k = 0; k < c; ++k){
+    for(j = 0; j < h; ++j){
+      for(i = 0; i < w; ++i){
+        int dst_index = i + w*j + w*h*k;
+        int src_index = k + c*i + c*w*j;
+        im.data[dst_index] = (float)data[src_index]/255.;
+      }
     }
-    if(channels) c = channels;
-    int i,j,k;
-    image im = make_image(w, h, c);
-    for(k = 0; k < c; ++k){
-        for(j = 0; j < h; ++j){
-            for(i = 0; i < w; ++i){
-                int dst_index = i + w*j + w*h*k;
-                int src_index = k + c*i + c*w*j;
-                im.data[dst_index] = (float)data[src_index]/255.;
-            }
-        }
-    }
-    free(data);
-    return im;
+  }
+  free(data);
+  return im;
 }
+#else
+#endif
 
+#ifndef USE_SGX
 image load_image(char *filename, int w, int h, int c)
 {
 #ifdef OPENCV
-    image out = load_image_cv(filename, c);
+  image out = load_image_cv(filename, c);
 #else
-    image out = load_image_stb(filename, c);
+  image out = load_image_stb(filename, c);
 #endif
 
-    if((h && w) && (h != out.h || w != out.w)){
-        image resized = resize_image(out, w, h);
-        free_image(out);
-        out = resized;
-    }
-    return out;
+  if((h && w) && (h != out.h || w != out.w)){
+    image resized = resize_image(out, w, h);
+    free_image(out);
+    out = resized;
+  }
+  return out;
 }
 
 image load_image_color(char *filename, int w, int h)
 {
-    return load_image(filename, w, h, 3);
+  return load_image(filename, w, h, 3);
 }
+#else
+#endif
+
 
 image get_image_layer(image m, int l)
 {
@@ -1493,22 +1525,26 @@ image get_image_layer(image m, int l)
     }
     return out;
 }
+
+#ifndef USE_SGX
 void print_image(image m)
 {
-    int i, j, k;
-    for(i =0 ; i < m.c; ++i){
-        for(j =0 ; j < m.h; ++j){
-            for(k = 0; k < m.w; ++k){
-                printf("%.2lf, ", m.data[i*m.h*m.w + j*m.w + k]);
-                if(k > 30) break;
-            }
-            printf("\n");
-            if(j > 30) break;
-        }
-        printf("\n");
+  int i, j, k;
+  for(i =0 ; i < m.c; ++i){
+    for(j =0 ; j < m.h; ++j){
+      for(k = 0; k < m.w; ++k){
+        printf("%.2lf, ", m.data[i*m.h*m.w + j*m.w + k]);
+        if(k > 30) break;
+      }
+      printf("\n");
+      if(j > 30) break;
     }
     printf("\n");
+  }
+  printf("\n");
 }
+#else
+#endif
 
 image collapse_images_vert(image *ims, int n)
 {
@@ -1581,31 +1617,34 @@ image collapse_images_horz(image *ims, int n)
     return filters;
 } 
 
+#ifndef USE_SGX
 void show_image_normalized(image im, const char *name)
 {
-    image c = copy_image(im);
-    normalize_image(c);
-    show_image(c, name);
-    free_image(c);
+  image c = copy_image(im);
+  normalize_image(c);
+  show_image(c, name);
+  free_image(c);
 }
 
 void show_images(image *ims, int n, char *window)
 {
-    image m = collapse_images_vert(ims, n);
-    /*
-       int w = 448;
-       int h = ((float)m.h/m.w) * 448;
-       if(h > 896){
-       h = 896;
-       w = ((float)m.w/m.h) * 896;
-       }
-       image sized = resize_image(m, w, h);
-     */
-    normalize_image(m);
-    save_image(m, window);
-    show_image(m, window);
-    free_image(m);
+  image m = collapse_images_vert(ims, n);
+  /*
+    int w = 448;
+    int h = ((float)m.h/m.w) * 448;
+    if(h > 896){
+    h = 896;
+    w = ((float)m.w/m.h) * 896;
+    }
+    image sized = resize_image(m, w, h);
+  */
+  normalize_image(m);
+  save_image(m, window);
+  show_image(m, window);
+  free_image(m);
 }
+#else
+#endif
 
 void free_image(image m)
 {

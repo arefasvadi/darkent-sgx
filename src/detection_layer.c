@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifndef USE_SGX
 detection_layer make_detection_layer(int batch, int inputs, int n, int side, int classes, int coords, int rescore)
 {
     detection_layer l = {0};
@@ -46,7 +47,10 @@ detection_layer make_detection_layer(int batch, int inputs, int n, int side, int
 
     return l;
 }
+#else
+#endif
 
+#ifndef USE_SGX
 void forward_detection_layer(const detection_layer l, network net)
 {
     int locations = l.side*l.side;
@@ -216,6 +220,8 @@ void forward_detection_layer(const detection_layer l, network net)
         //if(l.reorg) reorg(l.delta, l.w*l.h, size*l.n, l.batch, 0);
     }
 }
+#else
+#endif
 
 void backward_detection_layer(const detection_layer l, network net)
 {

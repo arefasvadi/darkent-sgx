@@ -50,15 +50,27 @@ load_args get_base_args(network *net)
     return args;
 }
 
+#ifndef USE_SGX
 network *load_network(char *cfg, char *weights, int clear)
 {
-    network *net = parse_network_cfg(cfg);
-    if(weights && weights[0] != 0){
-        load_weights(net, weights);
-    }
-    if(clear) (*net->seen) = 0;
-    return net;
+  network *net = parse_network_cfg(cfg);
+  if(weights && weights[0] != 0){
+    load_weights(net, weights);
+  }
+  if(clear) (*net->seen) = 0;
+  return net;
 }
+#else
+network *load_network(char *cfg, char *weights, int clear)
+{
+  network *net = parse_network_cfg(cfg);
+  /* if(weights && weights[0] != 0){ */
+  /*   load_weights(net, weights); */
+  /* } */
+  if(clear) (*net->seen) = 0;
+  return net;
+}
+#endif
 
 size_t get_current_batch(network *net)
 {
@@ -109,12 +121,18 @@ float get_current_rate(network *net)
             return net->learning_rate * pow(net->gamma, batch_num);
         case POLY:
             return net->learning_rate * pow(1 - (float)batch_num / net->max_batches, net->power);
+#ifndef USE_SGX
         case RANDOM:
             return net->learning_rate * pow(rand_uniform(0,1), net->power);
+#else
+#endif
         case SIG:
             return net->learning_rate * (1./(1.+exp(net->gamma*(batch_num - net->step))));
         default:
+#ifndef USE_SGX
             fprintf(stderr, "Policy is weird!\n");
+#else
+#endif
             return net->learning_rate;
     }
 }
@@ -286,46 +304,49 @@ void backward_network(network *netp)
     }
 }
 
+#ifndef USE_SGX
 float train_network_datum(network *net)
 {
-    *net->seen += net->batch;
-    net->train = 1;
-    forward_network(net);
-    backward_network(net);
-    float error = *net->cost;
-    if(((*net->seen)/net->batch)%net->subdivisions == 0) update_network(net);
-    return error;
+  *net->seen += net->batch;
+  net->train = 1;
+  forward_network(net);
+  backward_network(net);
+  float error = *net->cost;
+  if(((*net->seen)/net->batch)%net->subdivisions == 0) update_network(net);
+  return error;
 }
 
 float train_network_sgd(network *net, data d, int n)
 {
-    int batch = net->batch;
+  int batch = net->batch;
 
-    int i;
-    float sum = 0;
-    for(i = 0; i < n; ++i){
-        get_random_batch(d, batch, net->input, net->truth);
-        float err = train_network_datum(net);
-        sum += err;
-    }
-    return (float)sum/(n*batch);
+  int i;
+  float sum = 0;
+  for(i = 0; i < n; ++i){
+    get_random_batch(d, batch, net->input, net->truth);
+    float err = train_network_datum(net);
+    sum += err;
+  }
+  return (float)sum/(n*batch);
 }
 
 float train_network(network *net, data d)
 {
-    assert(d.X.rows % net->batch == 0);
-    int batch = net->batch;
-    int n = d.X.rows / batch;
+  assert(d.X.rows % net->batch == 0);
+  int batch = net->batch;
+  int n = d.X.rows / batch;
 
-    int i;
-    float sum = 0;
-    for(i = 0; i < n; ++i){
-        get_next_batch(d, batch, i*batch, net->input, net->truth);
-        float err = train_network_datum(net);
-        sum += err;
-    }
-    return (float)sum/(n*batch);
+  int i;
+  float sum = 0;
+  for(i = 0; i < n; ++i){
+    get_next_batch(d, batch, i*batch, net->input, net->truth);
+    float err = train_network_datum(net);
+    sum += err;
+  }
+  return (float)sum/(n*batch);
 }
+#else
+#endif
 
 void set_temp_network(network *net, float t)
 {
@@ -355,6 +376,7 @@ void set_batch_network(network *net, int b)
     }
 }
 
+#ifndef USE_SGX
 int resize_network(network *net, int w, int h)
 {
 #ifdef GPU
@@ -436,6 +458,8 @@ int resize_network(network *net, int w, int h)
     //fprintf(stderr, " Done!\n");
     return 0;
 }
+#else
+#endif
 
 layer get_network_detection_layer(network *net)
 {
@@ -445,22 +469,25 @@ layer get_network_detection_layer(network *net)
             return net->layers[i];
         }
     }
+#ifndef USE_SGX
     fprintf(stderr, "Detection layer not found!!\n");
+#else
+#endif
     layer l = {0};
     return l;
 }
 
 image get_network_image_layer(network *net, int i)
 {
-    layer l = net->layers[i];
+  layer l = net->layers[i];
 #ifdef GPU
-    //cuda_pull_array(l.output_gpu, l.output, l.outputs);
+  //cuda_pull_array(l.output_gpu, l.output, l.outputs);
 #endif
-    if (l.out_w && l.out_h && l.out_c){
-        return float_to_image(l.out_w, l.out_h, l.out_c, l.output);
-    }
-    image def = {0};
-    return def;
+  if (l.out_w && l.out_h && l.out_c){
+    return float_to_image(l.out_w, l.out_h, l.out_c, l.output);
+  }
+  image def = {0};
+  return def;
 }
 
 image get_network_image(network *net)
@@ -474,19 +501,22 @@ image get_network_image(network *net)
     return def;
 }
 
+#ifndef USE_SGX
 void visualize_network(network *net)
 {
-    image *prev = 0;
-    int i;
-    char buff[256];
-    for(i = 0; i < net->n; ++i){
-        sprintf(buff, "Layer %d", i);
-        layer l = net->layers[i];
-        if(l.type == CONVOLUTIONAL){
-            prev = visualize_convolutional_layer(l, buff, prev);
-        }
-    } 
+  image *prev = 0;
+  int i;
+  char buff[256];
+  for(i = 0; i < net->n; ++i){
+    sprintf(buff, "Layer %d", i);
+    layer l = net->layers[i];
+    if(l.type == CONVOLUTIONAL){
+      prev = visualize_convolutional_layer(l, buff, prev);
+    }
+  } 
 }
+#else
+#endif
 
 void top_predictions(network *net, int k, int *index)
 {
@@ -507,20 +537,21 @@ float *network_predict(network *net, float *input)
     return out;
 }
 
+#ifndef USE_SGX
 int num_detections(network *net, float thresh)
 {
-    int i;
-    int s = 0;
-    for(i = 0; i < net->n; ++i){
-        layer l = net->layers[i];
-        if(l.type == YOLO){
-            s += yolo_num_detections(l, thresh);
-        }
-        if(l.type == DETECTION || l.type == REGION){
-            s += l.w*l.h*l.n;
-        }
+  int i;
+  int s = 0;
+  for(i = 0; i < net->n; ++i){
+    layer l = net->layers[i];
+    if(l.type == YOLO){
+      s += yolo_num_detections(l, thresh);
     }
-    return s;
+    if(l.type == DETECTION || l.type == REGION){
+      s += l.w*l.h*l.n;
+    }
+  }
+  return s;
 }
 
 detection *make_network_boxes(network *net, float thresh, int *num)
@@ -565,6 +596,9 @@ detection *get_network_boxes(network *net, int w, int h, float thresh, float hie
     fill_network_boxes(net, w, h, thresh, hier, map, relative, dets);
     return dets;
 }
+#else
+#endif
+
 
 void free_detections(detection *dets, int n)
 {
@@ -576,18 +610,22 @@ void free_detections(detection *dets, int n)
     free(dets);
 }
 
+#ifndef USE_SGX
 float *network_predict_image(network *net, image im)
 {
-    image imr = letterbox_image(im, net->w, net->h);
-    set_batch_network(net, 1);
-    float *p = network_predict(net, imr.data);
-    free_image(imr);
-    return p;
+  image imr = letterbox_image(im, net->w, net->h);
+  set_batch_network(net, 1);
+  float *p = network_predict(net, imr.data);
+  free_image(imr);
+  return p;
 }
+#else
+#endif
 
 int network_width(network *net){return net->w;}
 int network_height(network *net){return net->h;}
 
+#ifndef USE_SGX
 matrix network_predict_data_multi(network *net, data test, int n)
 {
     int i,j,b,m;
@@ -610,7 +648,7 @@ matrix network_predict_data_multi(network *net, data test, int n)
         }
     }
     free(X);
-    return pred;   
+    return pred;
 }
 
 matrix network_predict_data(network *net, data test)
@@ -633,68 +671,77 @@ matrix network_predict_data(network *net, data test)
         }
     }
     free(X);
-    return pred;   
+    return pred;
 }
+#else
+#endif
 
+#ifndef USE_SGX
 void print_network(network *net)
 {
-    int i,j;
-    for(i = 0; i < net->n; ++i){
-        layer l = net->layers[i];
-        float *output = l.output;
-        int n = l.outputs;
-        float mean = mean_array(output, n);
-        float vari = variance_array(output, n);
-        fprintf(stderr, "Layer %d - Mean: %f, Variance: %f\n",i,mean, vari);
-        if(n > 100) n = 100;
-        for(j = 0; j < n; ++j) fprintf(stderr, "%f, ", output[j]);
-        if(n == 100)fprintf(stderr,".....\n");
-        fprintf(stderr, "\n");
-    }
+  int i,j;
+  for(i = 0; i < net->n; ++i){
+    layer l = net->layers[i];
+    float *output = l.output;
+    int n = l.outputs;
+    float mean = mean_array(output, n);
+    float vari = variance_array(output, n);
+    fprintf(stderr, "Layer %d - Mean: %f, Variance: %f\n",i,mean, vari);
+    if(n > 100) n = 100;
+    for(j = 0; j < n; ++j) fprintf(stderr, "%f, ", output[j]);
+    if(n == 100)fprintf(stderr,".....\n");
+    fprintf(stderr, "\n");
+  }
 }
 
 void compare_networks(network *n1, network *n2, data test)
 {
-    matrix g1 = network_predict_data(n1, test);
-    matrix g2 = network_predict_data(n2, test);
-    int i;
-    int a,b,c,d;
-    a = b = c = d = 0;
-    for(i = 0; i < g1.rows; ++i){
-        int truth = max_index(test.y.vals[i], test.y.cols);
-        int p1 = max_index(g1.vals[i], g1.cols);
-        int p2 = max_index(g2.vals[i], g2.cols);
-        if(p1 == truth){
-            if(p2 == truth) ++d;
-            else ++c;
-        }else{
-            if(p2 == truth) ++b;
-            else ++a;
-        }
+  matrix g1 = network_predict_data(n1, test);
+  matrix g2 = network_predict_data(n2, test);
+  int i;
+  int a,b,c,d;
+  a = b = c = d = 0;
+  for(i = 0; i < g1.rows; ++i){
+    int truth = max_index(test.y.vals[i], test.y.cols);
+    int p1 = max_index(g1.vals[i], g1.cols);
+    int p2 = max_index(g2.vals[i], g2.cols);
+    if(p1 == truth){
+      if(p2 == truth) ++d;
+      else ++c;
+    }else{
+      if(p2 == truth) ++b;
+      else ++a;
     }
-    printf("%5d %5d\n%5d %5d\n", a, b, c, d);
-    float num = pow((abs(b - c) - 1.), 2.);
-    float den = b + c;
-    printf("%f\n", num/den); 
+  }
+#ifndef USE_SGX
+  printf("%5d %5d\n%5d %5d\n", a, b, c, d);
+#else
+#endif
+  float num = pow((abs(b - c) - 1.), 2.);
+  float den = b + c;
 }
 
 float network_accuracy(network *net, data d)
 {
-    matrix guess = network_predict_data(net, d);
-    float acc = matrix_topk_accuracy(d.y, guess,1);
-    free_matrix(guess);
-    return acc;
+  matrix guess = network_predict_data(net, d);
+  float acc = matrix_topk_accuracy(d.y, guess,1);
+  free_matrix(guess);
+  return acc;
 }
 
 float *network_accuracies(network *net, data d, int n)
 {
-    static float acc[2];
-    matrix guess = network_predict_data(net, d);
-    acc[0] = matrix_topk_accuracy(d.y, guess, 1);
-    acc[1] = matrix_topk_accuracy(d.y, guess, n);
-    free_matrix(guess);
-    return acc;
+  static float acc[2];
+  matrix guess = network_predict_data(net, d);
+  acc[0] = matrix_topk_accuracy(d.y, guess, 1);
+  acc[1] = matrix_topk_accuracy(d.y, guess, n);
+  free_matrix(guess);
+  return acc;
 }
+
+#else
+#endif
+
 
 layer get_network_output_layer(network *net)
 {
@@ -705,13 +752,16 @@ layer get_network_output_layer(network *net)
     return net->layers[i];
 }
 
+#ifndef USE_SGX
 float network_accuracy_multi(network *net, data d, int n)
 {
-    matrix guess = network_predict_data_multi(net, d, n);
-    float acc = matrix_topk_accuracy(d.y, guess,1);
-    free_matrix(guess);
-    return acc;
+  matrix guess = network_predict_data_multi(net, d, n);
+  float acc = matrix_topk_accuracy(d.y, guess,1);
+  free_matrix(guess);
+  return acc;
 }
+#else
+#endif
 
 void free_network(network *net)
 {

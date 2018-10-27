@@ -1,8 +1,11 @@
 #ifndef UTILS_H
 #define UTILS_H
 #include <stdio.h>
+#ifndef USE_SGX
 #include <time.h>
 #include "darknet.h"
+#else
+#endif
 #include "list.h"
 
 #define TIME(a) \
@@ -32,7 +35,10 @@ void file_error(char *s);
 void strip(char *s);
 void strip_char(char *s, char bad);
 list *split_str(char *s, char delim);
+#ifndef USE_SGX
 char *fgetl(FILE *fp);
+#else
+#endif
 list *parse_csv_line(char *line);
 char *copy_string(char *s);
 int count_fields(char *line);
@@ -45,7 +51,10 @@ int rand_int(int min, int max);
 void mean_arrays(float **a, int n, int els, float *avg);
 float dist_array(float *a, float *b, int n, int sub);
 float **one_hot_encode(float *a, int n, int k);
+#ifndef USE_SGX
 float sec(clock_t clocks);
+#else
+#endif
 void print_statistics(float *a, int n);
 int int_index(int *a, int val, int n);
 

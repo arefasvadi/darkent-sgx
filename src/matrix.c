@@ -130,6 +130,7 @@ float *pop_column(matrix *m, int c)
     return col;
 }
 
+#ifndef USE_SGX
 matrix csv_to_matrix(char *filename)
 {
     FILE *fp = fopen(filename, "r");
@@ -194,3 +195,5 @@ void print_matrix(matrix m)
     for(j = 0; j < 16*m.cols-1; ++j) printf(" ");
     printf("__|\n");
 }
+#else
+#endif

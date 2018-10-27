@@ -1,6 +1,9 @@
 #ifndef DATA_H
 #define DATA_H
+#ifndef USE_SGX
 #include <pthread.h>
+#else
+#endif
 
 #include "darknet.h"
 #include "matrix.h"
