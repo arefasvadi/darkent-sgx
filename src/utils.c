@@ -252,7 +252,8 @@ void find_replace(char *str, char *orig, char *rep, char *output)
 float sec(clock_t clocks)
 {
   return (float)clocks/CLOCKS_PER_SEC;
-}#else
+}
+#else
 #endif
 
 void top_k(float *a, int n, int k, int *index)
