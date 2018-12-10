@@ -346,6 +346,34 @@ float train_network(network *net, data d)
   return (float)sum/(n*batch);
 }
 #else
+float train_network_datum(network *net)
+{
+  *net->seen += net->batch;
+  net->train = 1;
+  forward_network(net);
+  backward_network(net);
+  float error = *net->cost;
+  if(((*net->seen)/net->batch)%net->subdivisions == 0) update_network(net);
+  return error;
+}
+
+
+float train_network(network *net, data d)
+{
+  assert(d.X.rows % net->batch == 0);
+  int batch = net->batch;
+  int n = d.X.rows / batch;
+
+  int i;
+  float sum = 0;
+  for(i = 0; i < n; ++i){
+    get_next_batch(d, batch, i*batch, net->input, net->truth);
+    float err = train_network_datum(net);
+    sum += err;
+  }
+  return (float)sum/(n*batch);
+}
+
 #endif
 
 void set_temp_network(network *net, float t)

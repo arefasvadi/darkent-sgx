@@ -7,37 +7,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef USE_SGX
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 list *get_paths(char *filename)
 {
-    char *path;
-    FILE *file = fopen(filename, "r");
-    if(!file) file_error(filename);
-    list *lines = make_list();
-    while((path=fgetl(file))){
-        list_insert(lines, path);
-    }
-    fclose(file);
-    return lines;
+  char *path;
+  FILE *file = fopen(filename, "r");
+  if(!file) file_error(filename);
+  list *lines = make_list();
+  while((path=fgetl(file))){
+    list_insert(lines, path);
+  }
+  fclose(file);
+  return lines;
 }
-
-/*
-char **get_random_paths_indexes(char **paths, int n, int m, int *indexes)
-{
-    char **random_paths = calloc(n, sizeof(char*));
-    int i;
-    pthread_mutex_lock(&mutex);
-    for(i = 0; i < n; ++i){
-        int index = rand()%m;
-        indexes[i] = index;
-        random_paths[i] = paths[index];
-        if(i == 0) printf("%s\n", paths[index]);
-    }
-    pthread_mutex_unlock(&mutex);
-    return random_paths;
-}
-*/
 
 char **get_random_paths(char **paths, int n, int m)
 {
@@ -621,17 +605,6 @@ char **get_labels(char *filename)
     char **labels = (char **)list_to_array(plist);
     free_list(plist);
     return labels;
-}
-
-void free_data(data d)
-{
-    if(!d.shallow){
-        free_matrix(d.X);
-        free_matrix(d.y);
-    }else{
-        free(d.X.vals);
-        free(d.y.vals);
-    }
 }
 
 image get_segmentation_image(char *path, int w, int h, int classes)
@@ -1280,46 +1253,6 @@ data load_data_tag(char **paths, int n, int m, int k, int min, int max, int size
     if(m) free(paths);
     return d;
 }
-
-matrix concat_matrix(matrix m1, matrix m2)
-{
-    int i, count = 0;
-    matrix m;
-    m.cols = m1.cols;
-    m.rows = m1.rows+m2.rows;
-    m.vals = calloc(m1.rows + m2.rows, sizeof(float*));
-    for(i = 0; i < m1.rows; ++i){
-        m.vals[count++] = m1.vals[i];
-    }
-    for(i = 0; i < m2.rows; ++i){
-        m.vals[count++] = m2.vals[i];
-    }
-    return m;
-}
-
-data concat_data(data d1, data d2)
-{
-    data d = {0};
-    d.shallow = 1;
-    d.X = concat_matrix(d1.X, d2.X);
-    d.y = concat_matrix(d1.y, d2.y);
-    d.w = d1.w;
-    d.h = d1.h;
-    return d;
-}
-
-data concat_datas(data *d, int n)
-{
-    int i;
-    data out = {0};
-    for(i = 0; i < n; ++i){
-        data new = concat_data(d[i], out);
-        free_data(out);
-        out = new;
-    }
-    return out;
-}
-
 data load_categorical_data_csv(char *filename, int target, int k)
 {
     data d = {0};
@@ -1362,38 +1295,6 @@ data load_cifar10_data(char *filename)
     //normalize_data_rows(d);
     fclose(fp);
     return d;
-}
-
-void get_random_batch(data d, int n, float *X, float *y)
-{
-    int j;
-    for(j = 0; j < n; ++j){
-        int index = rand()%d.X.rows;
-        memcpy(X+j*d.X.cols, d.X.vals[index], d.X.cols*sizeof(float));
-        memcpy(y+j*d.y.cols, d.y.vals[index], d.y.cols*sizeof(float));
-    }
-}
-
-void get_next_batch(data d, int n, int offset, float *X, float *y)
-{
-    int j;
-    for(j = 0; j < n; ++j){
-        int index = offset + j;
-        memcpy(X+j*d.X.cols, d.X.vals[index], d.X.cols*sizeof(float));
-        if(y) memcpy(y+j*d.y.cols, d.y.vals[index], d.y.cols*sizeof(float));
-    }
-}
-
-void smooth_data(data d)
-{
-    int i, j;
-    float scale = 1. / d.y.cols;
-    float eps = .1;
-    for(i = 0; i < d.y.rows; ++i){
-        for(j = 0; j < d.y.cols; ++j){
-            d.y.vals[i][j] = eps * scale + (1-eps) * d.y.vals[i][j];
-        }
-    }
 }
 
 data load_all_cifar10()
@@ -1474,6 +1375,108 @@ data load_go(char *filename)
 
     return d;
 }
+#else
+#endif
+/*
+char **get_random_paths_indexes(char **paths, int n, int m, int *indexes)
+{
+    char **random_paths = calloc(n, sizeof(char*));
+    int i;
+    pthread_mutex_lock(&mutex);
+    for(i = 0; i < n; ++i){
+        int index = rand()%m;
+        indexes[i] = index;
+        random_paths[i] = paths[index];
+        if(i == 0) printf("%s\n", paths[index]);
+    }
+    pthread_mutex_unlock(&mutex);
+    return random_paths;
+}
+*/
+
+void free_data(data d)
+{
+    if(!d.shallow){
+        free_matrix(d.X);
+        free_matrix(d.y);
+    }else{
+        free(d.X.vals);
+        free(d.y.vals);
+    }
+}
+
+
+matrix concat_matrix(matrix m1, matrix m2)
+{
+    int i, count = 0;
+    matrix m;
+    m.cols = m1.cols;
+    m.rows = m1.rows+m2.rows;
+    m.vals = calloc(m1.rows + m2.rows, sizeof(float*));
+    for(i = 0; i < m1.rows; ++i){
+        m.vals[count++] = m1.vals[i];
+    }
+    for(i = 0; i < m2.rows; ++i){
+        m.vals[count++] = m2.vals[i];
+    }
+    return m;
+}
+
+data concat_data(data d1, data d2)
+{
+    data d = {0};
+    d.shallow = 1;
+    d.X = concat_matrix(d1.X, d2.X);
+    d.y = concat_matrix(d1.y, d2.y);
+    d.w = d1.w;
+    d.h = d1.h;
+    return d;
+}
+
+data concat_datas(data *d, int n)
+{
+    int i;
+    data out = {0};
+    for(i = 0; i < n; ++i){
+        data new = concat_data(d[i], out);
+        free_data(out);
+        out = new;
+    }
+    return out;
+}
+
+void get_random_batch(data d, int n, float *X, float *y)
+{
+    int j;
+    for(j = 0; j < n; ++j){
+        int index = rand()%d.X.rows;
+        memcpy(X+j*d.X.cols, d.X.vals[index], d.X.cols*sizeof(float));
+        memcpy(y+j*d.y.cols, d.y.vals[index], d.y.cols*sizeof(float));
+    }
+}
+
+void get_next_batch(data d, int n, int offset, float *X, float *y)
+{
+    int j;
+    for(j = 0; j < n; ++j){
+        int index = offset + j;
+        memcpy(X+j*d.X.cols, d.X.vals[index], d.X.cols*sizeof(float));
+        if(y) memcpy(y+j*d.y.cols, d.y.vals[index], d.y.cols*sizeof(float));
+    }
+}
+
+void smooth_data(data d)
+{
+    int i, j;
+    float scale = 1. / d.y.cols;
+    float eps = .1;
+    for(i = 0; i < d.y.rows; ++i){
+        for(j = 0; j < d.y.cols; ++j){
+            d.y.vals[i][j] = eps * scale + (1-eps) * d.y.vals[i][j];
+        }
+    }
+}
+
 
 
 void randomize_data(data d)
