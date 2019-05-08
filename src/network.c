@@ -194,12 +194,12 @@ char *get_layer_string(LAYER_TYPE a)
 
 network *make_network(int n)
 {
-    network *net = calloc(1, sizeof(network));
+    network *net = (network*)calloc(1, sizeof(network));
     net->n = n;
-    net->layers = calloc(net->n, sizeof(layer));
-    net->seen = calloc(1, sizeof(size_t));
-    net->t    = calloc(1, sizeof(int));
-    net->cost = calloc(1, sizeof(float));
+    net->layers = (layer*)calloc(net->n, sizeof(layer));
+    net->seen = (size_t*)calloc(1, sizeof(size_t));
+    net->t    = (int*)calloc(1, sizeof(int));
+    net->cost = (float*)calloc(1, sizeof(float));
     return net;
 }
 
@@ -501,7 +501,7 @@ layer get_network_detection_layer(network *net)
     fprintf(stderr, "Detection layer not found!!\n");
 #else
 #endif
-    layer l = {0};
+    layer l = {};
     return l;
 }
 

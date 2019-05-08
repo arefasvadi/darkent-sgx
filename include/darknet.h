@@ -7,6 +7,10 @@
 #include <pthread.h>
 #endif
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+
+#endif
+
 #define SECRET_NUM -1234
 extern int gpu_index;
 
@@ -788,6 +792,7 @@ char *fgetl(FILE *fp);
 void strip(char *s);
 #ifndef USE_SGX
 float sec(clock_t clocks);
+void smooth_data(data d);
 #else
 #endif
 void **list_to_array(list *l);
@@ -810,5 +815,4 @@ int *read_intlist(char *s, int *n, int d);
 size_t rand_size_t();
 float rand_normal();
 float rand_uniform(float min, float max);
-
 #endif

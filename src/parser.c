@@ -89,10 +89,10 @@ void free_section(section *s) {
   node *n = s->options->front;
   while (n) {
     kvp *pair = (kvp *)n->val;
-    /* my_printf(ANSI_COLOR_GREEN "KEY is %s" ANSI_COLOR_RESET "\n", pair->key); */
+    /* printf(ANSI_COLOR_GREEN "KEY is %s" ANSI_COLOR_RESET "\n", pair->key); */
     free(pair->key);
-    /* my_printf(ANSI_COLOR_GREEN "Val is %s" ANSI_COLOR_RESET "\n", pair->val); */
-    /* my_printf(ANSI_COLOR_RED "REACHED!" ANSI_COLOR_RESET "\n"); */
+    /* printf(ANSI_COLOR_GREEN "Val is %s" ANSI_COLOR_RESET "\n", pair->val); */
+    /* printf(ANSI_COLOR_RED "REACHED!" ANSI_COLOR_RESET "\n"); */
     free(pair);
     node *next = n->next;
     free(n);
@@ -305,7 +305,7 @@ int *parse_yolo_mask(char *a, int *num)
         for(i = 0; i < len; ++i){
             if (a[i] == ',') ++n;
         }
-        mask = calloc(n, sizeof(int));
+        mask = (int*)calloc(n, sizeof(int));
         for(i = 0; i < n; ++i){
             int val = atoi(a);
             mask[i] = val;
@@ -625,8 +625,8 @@ route_layer parse_route(list *options, size_params params, network *net)
         if (l[i] == ',') ++n;
     }
 
-    int *layers = calloc(n, sizeof(int));
-    int *sizes = calloc(n, sizeof(int));
+    int *layers = (int*)calloc(n, sizeof(int));
+    int *sizes = (int*)calloc(n, sizeof(int));
     for(i = 0; i < n; ++i){
         int index = atoi(l);
         l = strchr(l, ',')+1;
@@ -729,8 +729,8 @@ void parse_net_options(list *options, network *net)
         for(i = 0; i < len; ++i){
             if (l[i] == ',') ++n;
         }
-        int *steps = calloc(n, sizeof(int));
-        float *scales = calloc(n, sizeof(float));
+        int *steps = (int*)calloc(n, sizeof(int));
+        float *scales = (float*)calloc(n, sizeof(float));
         for(i = 0; i < n; ++i){
             int step    = atoi(l);
             float scale = atof(p);
@@ -761,14 +761,11 @@ int is_network(section *s)
 network *parse_network_cfg(char *filename)
 {
 
-  my_printf("%s:%d@%s =>  parse_network_cfg is invoked\n", __FILE__,
-            __LINE__, __func__);
-
+  LOG_TRACE("entered in parse network config\n");
     list *sections = read_cfg(filename);
     node *n = sections->front;
     if(!n) {
-      my_printf(ANSI_COLOR_RED   "%s:%d@%s =>  network is empty!" ANSI_COLOR_RESET   "\n", __FILE__,
-                __LINE__, __func__);
+      LOG_ERROR("network is empty!" "\n");
       abort();
     }
     network *net = make_network(sections->size - 1);
@@ -777,8 +774,7 @@ network *parse_network_cfg(char *filename)
     section *s = (section *)n->val;
     list *options = s->options;
     if(!is_network(s)) {
-      my_printf("%s:%d@%s =>  First section must be [net] or [network] \n", __FILE__,
-                __LINE__, __func__);
+      LOG_ERROR("First section must be [net] or [network] \n");
       abort();
     }
     parse_net_options(options, net);
@@ -793,10 +789,9 @@ network *parse_network_cfg(char *filename)
     size_t workspace_size = 0;
     n = n->next;
     int count = 0;
-    my_printf("network type is :%s\n",s->type);
+    LOG_INFO("network type is :%s\n",s->type);
     free_section(s);
-    my_printf(ANSI_COLOR_GREEN   "%s:%d@%s =>  free_Section was successful" ANSI_COLOR_RESET "\n", __FILE__,
-              __LINE__, __func__);
+    LOG_DEBUG("free_Section was successful" "\n");
 
 #ifndef USE_SGX
     fprintf(stderr, "layer     filters    size              input                output\n");
@@ -810,7 +805,7 @@ network *parse_network_cfg(char *filename)
 #endif
         s = (section *)n->val;
         options = s->options;
-        layer l = {0};
+        layer l = {};
         LAYER_TYPE lt = string_to_layer_type(s->type);
         if(lt == CONVOLUTIONAL){
             l = parse_convolutional(options, params);
@@ -917,8 +912,8 @@ network *parse_network_cfg(char *filename)
     net->truths = out.outputs;
     if(net->layers[net->n-1].truths) net->truths = net->layers[net->n-1].truths;
     net->output = out.output;
-    net->input = calloc(net->inputs*net->batch, sizeof(float));
-    net->truth = calloc(net->truths*net->batch, sizeof(float));
+    net->input = (float*)calloc(net->inputs*net->batch, sizeof(float));
+    net->truth = (float*)calloc(net->truths*net->batch, sizeof(float));
 #ifdef GPU
     net->output_gpu = out.output_gpu;
     net->input_gpu = cuda_make_array(net->input, net->inputs*net->batch);
@@ -933,11 +928,10 @@ network *parse_network_cfg(char *filename)
             net->workspace = calloc(1, workspace_size);
         }
 #else
-        net->workspace = calloc(1, workspace_size);
+        net->workspace = (float*)calloc(1, workspace_size);
 #endif
     }
-    my_printf("%s:%d@%s =>  parse_network_cfg finished \n", __FILE__,
-              __LINE__, __func__);
+    LOG_TRACE("finished in parse network config\n");
     return net;
 }
 
@@ -982,12 +976,11 @@ list *read_cfg(char *filename)
  * of the file.
  */
 list *read_cfg(char *filename) {
-
-  my_printf("%s:%d@%s =>  read_cfg is invoked\n", __FILE__, __LINE__, __func__);
+  LOG_TRACE("entered read cfg\n");
   char file_content[10000];
   memset(file_content, 0, 10000);
   memcpy(file_content, filename, strlen(filename) + 1);
-  /* my_printf("%s:%d@%s =>  read_cfg file content is %s\n", __FILE__, */
+  /* printf("%s:%d@%s =>  read_cfg file content is %s\n", __FILE__, */
   /*           __LINE__, __func__,file_content); */
   char *line;
   char *temp;
@@ -998,14 +991,14 @@ list *read_cfg(char *filename) {
   while (line != NULL) {
     /* ++ nu; */
     strip(line);
-    char *line_heap = calloc((strlen(line) + 1), sizeof(char));
+    char *line_heap = (char*)calloc((strlen(line) + 1), sizeof(char));
     memcpy(line_heap, line, strlen(line) + 1);
     line_heap[strlen(line)] = '\0';
-    /* my_printf("line is: %s : heap_line is %s\n",line,line_heap); */
+    /* printf("line is: %s : heap_line is %s\n",line,line_heap); */
     /* switch (line[0]) { */
     switch (line_heap[0]) {
     case '[':
-      current = malloc(sizeof(section));
+      current = (section*)malloc(sizeof(section));
       list_insert(options, current);
       current->options = make_list();
       current->type = line_heap;
@@ -1028,9 +1021,7 @@ list *read_cfg(char *filename) {
     }
     line = strtok(NULL, "\n");
   }
-  my_printf("%s:%d@%s =>  read_cfg is done. option size is %d; file "
-            "content is %s\n",
-            __FILE__, __LINE__, __func__, options->size, file_content);
+  LOG_TRACE("finished read cfg\n");
   return options;
 }
 
@@ -1208,7 +1199,7 @@ void save_weights(network *net, char *filename) {
 #endif
 
 void transpose_matrix(float *a, int rows, int cols) {
-  float *transpose = calloc(rows * cols, sizeof(float));
+  float *transpose = (float*)calloc(rows * cols, sizeof(float));
   int x, y;
   for (x = 0; x < rows; ++x) {
     for (y = 0; y < cols; ++y) {
