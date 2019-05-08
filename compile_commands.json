@@ -1,0 +1,401 @@
+[
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/data.o",
+            "src/data.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/data.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/network.o",
+            "src/network.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/network.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/connected_layer.o",
+            "src/connected_layer.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/connected_layer.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/crop_layer.o",
+            "src/crop_layer.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/crop_layer.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/blas.o",
+            "src/blas.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/blas.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/cost_layer.o",
+            "src/cost_layer.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/cost_layer.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/utils.o",
+            "src/utils.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/utils.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/maxpool_layer.o",
+            "src/maxpool_layer.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/maxpool_layer.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/matrix.o",
+            "src/matrix.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/matrix.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/parser.o",
+            "src/parser.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/parser.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/cuda.o",
+            "src/cuda.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/cuda.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/dropout_layer.o",
+            "src/dropout_layer.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/dropout_layer.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/softmax_layer.o",
+            "src/softmax_layer.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/softmax_layer.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/col2im.o",
+            "src/col2im.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/col2im.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/image.o",
+            "src/image.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/image.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/gemm.o",
+            "src/gemm.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/gemm.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/deconvolutional_layer.o",
+            "src/deconvolutional_layer.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/deconvolutional_layer.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/convolutional_layer.o",
+            "src/convolutional_layer.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/convolutional_layer.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/activations.o",
+            "src/activations.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/activations.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/im2col.o",
+            "src/im2col.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/im2col.c"
+    },
+    {
+        "arguments": [
+            "gcc",
+            "-c",
+            "-Iinclude/",
+            "-Isrc/",
+            "-Wall",
+            "-Wno-unused-result",
+            "-Wno-unknown-pragmas",
+            "-Wfatal-errors",
+            "-fPIC",
+            "-Ofast",
+            "-o",
+            "obj/list.o",
+            "src/list.c"
+        ],
+        "directory": "/home/aref/projects/SGX-ADL/third_party/darknet",
+        "file": "src/list.c"
+    }
+]

@@ -1,19 +1,24 @@
 #ifndef UTILS_H
 #define UTILS_H
+#ifdef USE_SGX
+#include <cstdio>
+#else
 #include <stdio.h>
+#endif
+
 #ifndef USE_SGX
-#include <time.h>
 #include "darknet.h"
+#include <time.h>
 #else
 #endif
 #include "list.h"
 
-#define TIME(a) \
-    do { \
-    double start = what_time_is_it_now(); \
-    a; \
-    printf("%s took: %f seconds\n", #a, what_time_is_it_now() - start); \
-    } while (0)
+#define TIME(a)                                                                \
+  do {                                                                         \
+    double start = what_time_is_it_now();                                      \
+    a;                                                                         \
+    printf("%s took: %f seconds\n", #a, what_time_is_it_now() - start);        \
+  } while (0)
 
 #define TWO_PI 6.2831853071795864769252866f
 
@@ -52,11 +57,11 @@ void mean_arrays(float **a, int n, int els, float *avg);
 float dist_array(float *a, float *b, int n, int sub);
 float **one_hot_encode(float *a, int n, int k);
 #ifndef USE_SGX
+void print_statistics(float *a, int n);
 float sec(clock_t clocks);
 #else
 #endif
-void print_statistics(float *a, int n);
+
 int int_index(int *a, int val, int n);
 
 #endif
-
