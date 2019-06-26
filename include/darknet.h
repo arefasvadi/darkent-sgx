@@ -1,3 +1,4 @@
+#pragma once
 #ifndef DARKNET_API
 #define DARKNET_API
 #include <stdlib.h>
@@ -8,7 +9,7 @@
 #endif
 
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
-
+#include "BlockEngine.hpp"
 #endif
 
 #define SECRET_NUM -1234
@@ -120,6 +121,14 @@ typedef struct network network;
 
 struct layer;
 typedef struct layer layer;
+
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+struct network_blocked;
+typedef struct network_blocked network_blocked;
+
+struct layer_blocked;
+typedef struct layer_blocked layer_blocked;
+#endif
 
 struct layer{
     LAYER_TYPE type;
@@ -426,7 +435,291 @@ struct layer{
 #endif
 };
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+struct layer_blocked{
+    LAYER_TYPE type;
+    ACTIVATION activation;
+    COST_TYPE cost_type;
+    void (*forward_blocked)   (struct layer_blocked, struct network_blocked);
+    void (*backward_blocked)  (struct layer_blocked, struct network_blocked);
+    void (*update_blocked)    (struct layer_blocked, update_args);
+    
+    int batch_normalize;
+    int shortcut;
+    int batch;
+    int forced;
+    int flipped;
+    int inputs;
+    int outputs;
+    int nweights;
+    int nbiases;
+    int extra;
+    int truths;
+    int h,w,c;
+    int out_h, out_w, out_c;
+    int n;
+    int max_boxes;
+    int groups;
+    int size;
+    int side;
+    int stride;
+    int reverse;
+    int flatten;
+    int spatial;
+    int pad;
+    int sqrt;
+    int flip;
+    int index;
+    int binary;
+    int xnor;
+    int steps;
+    int hidden;
+    int truth;
+    float smooth;
+    float dot;
+    float angle;
+    float jitter;
+    float saturation;
+    float exposure;
+    float shift;
+    float ratio;
+    float learning_rate_scale;
+    float clip;
+    int softmax;
+    int classes;
+    int coords;
+    int background;
+    int rescore;
+    int objectness;
+    int joint;
+    int noadjust;
+    int reorg;
+    int log;
+    int tanh;
+    //int *mask;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  mask;
+
+    int total;
+
+    float alpha;
+    float beta;
+    float kappa;
+
+    float coord_scale;
+    float object_scale;
+    float noobject_scale;
+    float mask_scale;
+    float class_scale;
+    int bias_match;
+    int random;
+    float ignore_thresh;
+    float truth_thresh;
+    float thresh;
+    float focus;
+    int classfix;
+    int absolute;
+
+    int onlyforward;
+    int stopbackward;
+    int dontload;
+    int dontsave;
+    int dontloadscales;
+
+    float temperature;
+    float probability;
+    float scale;
+
+    //char  * cweights;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<char,1>>  cweights;
+    // int   * indexes;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  indexes;
+    // int   * input_layers;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  input_layers;
+    // int   * input_sizes;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  input_sizes;
+    // int   * map;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  map;
+    // float * rand;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  rand;
+    float * cost;
+    // std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  cost;
+    // float * state;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  state;
+    // float * prev_state;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  prev_state;
+    // float * forgot_state;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  forgot_state;
+    // float * forgot_delta;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  forgot_delta;
+    // float * state_delta;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  state_delta;
+    // float * combine_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  combine_cpu;
+    // float * combine_delta_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  combine_delta_cpu;
+    // float * concat;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  concat;
+    //float * concat_delta;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  concat_delta;
+    // float * binary_weights;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  binary_weights;
+
+    // float * biases;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  biases;
+    //float * bias_updates;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  bias_updates;
+
+
+    // float * scales;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  scales;
+    // float * scale_updates;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  scale_updates;
+
+    // float * weights;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  weights;
+    // float * weight_updates;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  weight_updates;
+
+    // float * delta;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  delta;
+    // float * output;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  output;
+
+    // float * loss;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  loss;
+    // float * squared;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  squared;
+    // float * norms;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  norms;
+
+    // float * spatial_mean;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  spatial_mean;
+    // float * mean;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  mean;
+    // float * variance;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  variance;
+
+    // float * mean_delta;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  mean_delta;
+    // float * variance_delta;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  variance_delta;
+
+    // float * rolling_mean;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  rolling_mean;
+    // float * rolling_variance;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  rolling_variance;
+
+    // float * x;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  x;
+    // float * x_norm;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  x_norm;
+
+    // float * m;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  m;
+    // float * v;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  v;
+    
+    // float * bias_m;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  bias_m;
+    // float * bias_v;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  bias_v;
+    // float * scale_m;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  scale_m;
+    // float * scale_v;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  scale_v;
+
+
+    // float *z_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  z_cpu;
+    // float *r_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  r_cpu;
+    // float *h_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  h_cpu;
+    // float * prev_state_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  prev_state_cpu;
+
+    // float *temp_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  temp_cpu;
+    // float *temp2_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  temp2_cpu;
+    // float *temp3_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  temp3_cpu;
+
+    // float *dh_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  dh_cpu;
+    // float *hh_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  hh_cpu;
+    // float *prev_cell_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  prev_cell_cpu;
+    // float *cell_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  cell_cpu;
+
+    // float *f_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  f_cpu;
+    // float *i_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  i_cpu;
+    // float *g_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  g_cpu;
+    // float *o_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  o_cpu;
+    // float *c_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  c_cpu;
+    // float *dc_cpu;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  dc_cpu;
+
+    // float * binary_input;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  binary_input;
+
+    struct layer_blocked *input_layer;
+    struct layer_blocked *self_layer;
+    struct layer_blocked *output_layer;
+
+    struct layer_blocked *reset_layer;
+    struct layer_blocked *update_layer;
+    struct layer_blocked *state_layer;
+
+    struct layer_blocked *input_gate_layer;
+    struct layer_blocked *state_gate_layer;
+    struct layer_blocked *input_save_layer;
+    struct layer_blocked *state_save_layer;
+    struct layer_blocked *input_state_layer;
+    struct layer_blocked *state_state_layer;
+
+    struct layer_blocked *input_z_layer;
+    struct layer_blocked *state_z_layer;
+
+    struct layer_blocked *input_r_layer;
+    struct layer_blocked *state_r_layer;
+
+    struct layer_blocked *input_h_layer;
+    struct layer_blocked *state_h_layer;
+	
+    struct layer_blocked *wz;
+    struct layer_blocked *uz;
+    struct layer_blocked *wr;
+    struct layer_blocked *ur;
+    struct layer_blocked *wh;
+    struct layer_blocked *uh;
+    struct layer_blocked *uo;
+    struct layer_blocked *wo;
+    struct layer_blocked *uf;
+    struct layer_blocked *wf;
+    struct layer_blocked *ui;
+    struct layer_blocked *wi;
+    struct layer_blocked *ug;
+    struct layer_blocked *wg;
+    tree *softmax_tree;
+    size_t workspace_size;
+
+};
+#endif
+
+
 void free_layer(layer);
+
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+void free_layer_blocked(layer_blocked);
+#endif
 
 typedef enum {
     CONSTANT, STEP, EXP, POLY, STEPS, SIG, RANDOM
@@ -499,6 +792,76 @@ typedef struct network{
 #endif
 
 } network;
+
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+typedef struct network_blocked{
+    int n;
+    int batch;
+    size_t *seen;
+    int *t;
+    float epoch;
+    int subdivisions;
+    layer_blocked *layers;
+
+    // float *output;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  output;
+    learning_rate_policy policy;
+
+    float learning_rate;
+    float momentum;
+    float decay;
+    float gamma;
+    float scale;
+    float power;
+    int time_steps;
+    int step;
+    int max_batches;
+    float *scales;
+    // std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  scales;
+    int   *steps;
+    // std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  steps;
+    int num_steps;
+    int burn_in;
+
+    int adam;
+    float B1;
+    float B2;
+    float eps;
+
+    int inputs;
+    int outputs;
+    int truths;
+    int notruth;
+    int h, w, c;
+    int max_crop;
+    int min_crop;
+    float max_ratio;
+    float min_ratio;
+    int center;
+    float angle;
+    float aspect;
+    float exposure;
+    float saturation;
+    float hue;
+    int random;
+
+    int gpu_index;
+    tree *hierarchy;
+
+    // float *input;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  input;
+    // float *truth;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  truth;
+    // float *delta;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  delta;
+    // float *workspace;
+    std::shared_ptr<sgx::trusted::BlockedBuffer<float,1>>  workspace;
+    int train;
+    int index;
+    float *cost;
+    float clip;
+} network_blocked;
+#endif
 
 typedef struct {
     int w;
@@ -590,6 +953,9 @@ typedef struct{
 
 
 network *load_network(char *cfg, char *weights, int clear);
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+network_blocked *load_network_blocked(char *cfg, char *weights, int clear);
+#endif
 load_args get_base_args(network *net);
 
 void free_data(data d);
@@ -621,6 +987,11 @@ void forward_network(network *net);
 void backward_network(network *net);
 void update_network(network *net);
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+void forward_network_blocked(network_blocked *net);
+void backward_network_blocked(network_blocked *net);
+void update_network_blocked(network_blocked *net);
+#endif
 
 float dot_cpu(int N, float *X, int INCX, float *Y, int INCY);
 void axpy_cpu(int N, float ALPHA, float *X, int INCX, float *Y, int INCY);
@@ -629,6 +1000,35 @@ void scal_cpu(int N, float ALPHA, float *X, int INCX);
 void fill_cpu(int N, float ALPHA, float * X, int INCX);
 void normalize_cpu(float *x, float *mean, float *variance, int batch, int filters, int spatial);
 void softmax(float *input, int n, float temp, int stride, float *output);
+
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+float dot_cpu_blocked(int N, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, 
+                        int INCX, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &Y, int INCY);
+void axpy_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &Y, int INCY);
+void copy_cpu_blocked(int N, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &Y, int INCY);
+void scal_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX);
+void fill_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX);
+void normalize_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, int batch, int filters, int spatial);
+void softmax_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &input,int input_offset, int n, float temp, int stride, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &output,int output_offset);
+
+float train_network_sgd_blocked(network_blocked *net, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &d, int n);
+float train_network_datum_blocked(network_blocked *net);
+void free_network_blocked(network_blocked *net);
+void set_batch_network_blocked(network_blocked *net, int b);
+void set_temp_network_blocked(network_blocked *net, float t);
+float get_current_rate_blocked(network_blocked *net);
+size_t get_current_batch_blocked(network_blocked *net);
+layer_blocked get_network_output_layer_blocked(network_blocked *net);
+float network_accuracy_blocked(network_blocked *net, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> & d);
+std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> network_predict_data_blocked(network_blocked *net, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> & test);
+
+int network_width_blocked(network_blocked *net);
+int network_height_blocked(network_blocked *net);
+float train_network_blocked(network_blocked *net);
+
+float sum_array_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> & a, int n,int offset);
+network_blocked *parse_network_cfg_blocked(char *filename);
+#endif
 
 int best_3d_shift_r(image a, image b, int min, int max);
 #ifdef GPU
@@ -815,4 +1215,5 @@ int *read_intlist(char *s, int *n, int d);
 size_t rand_size_t();
 float rand_normal();
 float rand_uniform(float min, float max);
+
 #endif

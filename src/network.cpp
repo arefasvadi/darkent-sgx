@@ -50,6 +50,17 @@ load_args get_base_args(network *net)
     return args;
 }
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+network_blocked *load_network_blocked(char *cfg, char *weights, int clear) {
+    network_blocked *net = parse_network_cfg_blocked(cfg);
+    /* if(weights && weights[0] != 0){ */
+    /*   load_weights(net, weights); */
+    /* } */
+    if(clear) (*net->seen) = 0;
+    return net;
+}
+#endif
+
 #ifndef USE_SGX
 network *load_network(char *cfg, char *weights, int clear)
 {
@@ -202,6 +213,173 @@ network *make_network(int n)
     net->cost = (float*)calloc(1, sizeof(float));
     return net;
 }
+
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+size_t get_current_batch_blocked(network_blocked *net)
+{
+    size_t batch_num = (*net->seen)/(net->batch*net->subdivisions);
+    return batch_num;
+}
+
+float get_current_rate_blocked(network_blocked *net) {
+    size_t batch_num = get_current_batch_blocked(net);
+    int i;
+    float rate;
+    if (batch_num < net->burn_in) return net->learning_rate * pow((float)batch_num / net->burn_in, net->power);
+    switch (net->policy) {
+        case CONSTANT:
+            return net->learning_rate;
+        case STEP:
+            return net->learning_rate * pow(net->scale, batch_num/net->step);
+        case STEPS:
+            rate = net->learning_rate;
+            for(i = 0; i < net->num_steps; ++i){
+                if(net->steps[i] > batch_num) return rate;
+                rate *= net->scales[i];
+            }
+            return rate;
+        case EXP:
+            return net->learning_rate * pow(net->gamma, batch_num);
+        case POLY:
+            return net->learning_rate * pow(1 - (float)batch_num / net->max_batches, net->power);
+//#ifndef USE_SGX
+//        case RANDOM:
+//           return net->learning_rate * pow(rand_uniform(0,1), net->power);
+//#else
+//#endif
+        case SIG:
+            return net->learning_rate * (1./(1.+exp(net->gamma*(batch_num - net->step))));
+        default:
+
+            LOG_ERROR("Policy is weird!\n");
+            abort();
+
+            return net->learning_rate;
+    }
+}
+
+layer_blocked get_network_output_layer_blocked(network_blocked *net)
+{
+    int i;
+    for(i = net->n - 1; i >= 0; --i){
+        if(net->layers[i].type != COST) break;
+    }
+    return net->layers[i];
+}
+
+network_blocked *make_network_blocked(int n)
+{
+    network_blocked *net = (network_blocked*)calloc(1, sizeof(network_blocked));
+    net->n = n;
+    net->layers = (layer_blocked*)calloc(net->n, sizeof(layer_blocked));
+    net->seen = (size_t*)calloc(1, sizeof(size_t));
+    net->t    = (int*)calloc(1, sizeof(int));
+    net->cost = (float*)calloc(1, sizeof(float));
+    return net;
+}
+
+void forward_network_blocked(network_blocked *netp) {
+    network_blocked net = *netp;
+    int i;
+    for(i = 0; i < net.n; ++i){
+        LOG_DEBUG("processing forward layer %d of %d",i+1,net.n)
+        net.index = i;
+        layer_blocked l = net.layers[i];
+        if(l.delta){
+            fill_cpu_blocked(l.outputs * l.batch, 0, l.delta, 1);
+        }
+        l.forward_blocked(l, net);
+        net.input = l.output;
+        if(l.truth) {
+            net.truth = l.output;
+        }
+    }
+    LOG_DEBUG("calculation cost layer in forward!")
+    calc_network_cost_blocked(netp);
+    LOG_DEBUG("finished calculation cost layer in forward!")
+}
+
+void backward_network_blocked(network_blocked *netp) {
+    network_blocked net = *netp;
+    int i;
+    network_blocked orig = net;
+    for(i = net.n-1; i >= 0; --i){
+        layer_blocked l = net.layers[i];
+        LOG_DEBUG("backward layer %d of %d of type %s",(i+1),net.n,get_layer_string(l.type))
+        if(l.stopbackward) {
+            LOG_DEBUG("stop back seen!");
+            break;
+        }
+        if(i == 0){
+            net = orig;
+        }else{
+            layer_blocked prev = net.layers[i-1];
+            net.input = prev.output;
+            net.delta = prev.delta;
+            //LOG_DEBUG("Net Delta: %p",net.delta)
+        }
+        net.index = i;
+        //LOG_DEBUG("ready for backward!!")
+        l.backward_blocked(l, net);
+        //LOG_DEBUG("finished backward!!")
+    }
+}
+
+void update_network_blocked(network_blocked *netp) {
+    network_blocked net = *netp;
+    int i;
+    update_args a = {0};
+    a.batch = net.batch*net.subdivisions;
+    a.learning_rate = get_current_rate_blocked(netp);
+    a.momentum = net.momentum;
+    a.decay = net.decay;
+    a.adam = net.adam;
+    a.B1 = net.B1;
+    a.B2 = net.B2;
+    a.eps = net.eps;
+    ++*net.t;
+    a.t = *net.t;
+
+    for(i = 0; i < net.n; ++i){
+        layer_blocked l = net.layers[i];
+        if(l.update_blocked){
+            l.update_blocked(l, a);
+        }
+    }
+}
+
+void calc_network_cost_blocked(network_blocked *netp) {
+    network_blocked net = *netp;
+    int i;
+    float sum = 0;
+    int count = 0;
+    for(i = 0; i < net.n; ++i){
+        LOG_DEBUG("cost calc layer %d of %d",i+1,net.n)
+        if(net.layers[i].cost){
+            LOG_DEBUG("layer %d is cost",i+1)
+            sum += net.layers[i].cost[0];
+            ++count;
+        }
+    }
+    *net.cost = sum/count;
+}
+
+float train_network_datum_blocked(network_blocked *net)
+{
+  *net->seen += net->batch;
+  net->train = 1;
+  forward_network_blocked(net);
+  backward_network_blocked(net);
+  float error = *net->cost;
+  if(((*net->seen)/net->batch)%net->subdivisions == 0) update_network_blocked(net);
+  return error;
+}
+
+float train_network_blocked(network_blocked *net) {
+  return train_network_datum_blocked(net)/net->batch;
+}
+
+#endif
 
 void forward_network(network *netp)
 {
@@ -678,13 +856,17 @@ matrix network_predict_data_multi(network *net, data test, int n)
     free(X);
     return pred;
 }
-
+#else
 matrix network_predict_data(network *net, data test)
 {
     int i,j,b;
     int k = net->outputs;
     matrix pred = make_matrix(test.X.rows, k);
-    float *X = calloc(net->batch*test.X.cols, sizeof(float));
+    float *X = (float*)calloc(net->batch*test.X.cols, sizeof(float));
+    if (X == nullptr) {
+        LOG_ERROR("Could not allocate memory\n");
+        abort();
+    }
     for(i = 0; i < test.X.rows; i += net->batch){
         for(b = 0; b < net->batch; ++b){
             if(i+b == test.X.rows) break;
@@ -701,8 +883,15 @@ matrix network_predict_data(network *net, data test)
     free(X);
     return pred;
 }
-#else
 #endif
+
+float network_accuracy(network *net, data d)
+{
+  matrix guess = network_predict_data(net, d);
+  float acc = matrix_topk_accuracy(d.y, guess,1);
+  free_matrix(guess);
+  return acc;
+}
 
 #ifndef USE_SGX
 void print_network(network *net)
@@ -747,14 +936,6 @@ void compare_networks(network *n1, network *n2, data test)
 #endif
   float num = pow((abs(b - c) - 1.), 2.);
   float den = b + c;
-}
-
-float network_accuracy(network *net, data d)
-{
-  matrix guess = network_predict_data(net, d);
-  float acc = matrix_topk_accuracy(d.y, guess,1);
-  free_matrix(guess);
-  return acc;
 }
 
 float *network_accuracies(network *net, data d, int n)

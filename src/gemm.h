@@ -18,6 +18,22 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
         float BETA,
         float *C, int ldc);
 
+#if defined (USE_SGX) && defined(USE_SGX_BLOCKING)
+#include "BlockEngine.hpp"
+void gemm_cpu_blocked(int TA, int TB, int M, int N, int K, float ALPHA, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
+        float BETA,
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc);
+
+void gemm_blocked(int TA, int TB, int M, int N, int K, float ALPHA, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
+        float BETA,
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc);
+
+#endif
+
 #ifdef GPU
 void gemm_gpu(int TA, int TB, int M, int N, int K, float ALPHA, 
         float *A_gpu, int lda, 

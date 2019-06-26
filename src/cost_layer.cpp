@@ -103,6 +103,59 @@ void backward_cost_layer(const cost_layer l, network net)
     axpy_cpu(l.batch*l.inputs, l.scale, l.delta, 1, net.delta, 1);
 }
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+cost_layer_blocked make_cost_layer_blocked(int batch, int inputs, COST_TYPE type, float scale) {
+    cost_layer_blocked l = {};
+    l.type = COST;
+
+    l.scale = scale;
+    l.batch = batch;
+    l.inputs = inputs;
+    l.outputs = inputs;
+    l.cost_type = type;
+    // l.delta = (float*)calloc(inputs*batch, sizeof(float));
+    l.delta = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({inputs*batch});
+    // l.output = (float*)calloc(inputs*batch, sizeof(float));
+    l.output = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({inputs*batch});
+    l.cost = (float*)calloc(1, sizeof(float));
+
+    l.forward_blocked = forward_cost_layer_blocked;
+    l.backward_blocked = backward_cost_layer_blocked;
+    
+    return l;
+}
+void forward_cost_layer_blocked(const cost_layer_blocked l, network_blocked net) {
+    if (!net.truth) return;
+    if(l.cost_type == MASKED){
+        int i;
+        BLOCK_ENGINE_INIT_FOR_LOOP(net.truth, net_truth_valid_range, net_truth_block_val_ptr, float)
+        BLOCK_ENGINE_INIT_FOR_LOOP(net.input, net_input_valid_range, net_input_block_val_ptr, float)
+        for(i = 0; i < l.batch*l.inputs; ++i){
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(net.truth, net_truth_valid_range, net_truth_block_val_ptr, false, net_truth_current_index, i)
+            // if(net.truth[i] == SECRET_NUM) {
+            if(*(net_truth_block_val_ptr+net_truth_current_index-net_truth_valid_range.block_requested_ind) == SECRET_NUM) {
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(net.input, net_input_valid_range, net_input_block_val_ptr, true, net_input_current_index, i)
+                // net.input[i] = SECRET_NUM;
+                *(net_input_block_val_ptr+net_input_current_index-net_input_valid_range.block_requested_ind) = SECRET_NUM;
+            }
+        }
+        BLOCK_ENGINE_LAST_UNLOCK(net.truth, net_truth_valid_range)
+        BLOCK_ENGINE_LAST_UNLOCK(net.input, net_input_valid_range)
+    }
+    if(l.cost_type == SMOOTH){
+        smooth_l1_cpu_blocked(l.batch*l.inputs, net.input, net.truth, l.delta, l.output);
+    }else if(l.cost_type == L1){
+        l1_cpu_blocked(l.batch*l.inputs, net.input, net.truth, l.delta, l.output);
+    } else {
+        l2_cpu_blocked(l.batch*l.inputs, net.input, net.truth, l.delta, l.output);
+    }
+    l.cost[0] = sum_array_blocked(l.output, l.batch*l.inputs,0);
+}
+void backward_cost_layer_blocked(const cost_layer_blocked l, network_blocked net) {
+    axpy_cpu_blocked(l.batch*l.inputs, l.scale, l.delta, 1, net.delta, 1);
+}
+#endif
+
 #ifdef GPU
 
 void pull_cost_layer(cost_layer l)

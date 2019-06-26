@@ -195,6 +195,177 @@ void backward_connected_layer(layer l, network net)
     if(c) gemm(0,0,m,n,k,1,a,k,b,n,1,c,n);
 }
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+layer_blocked make_connected_layer_blocked(int batch, int inputs, int outputs, ACTIVATION activation, int batch_normalize, int adam) {
+    int i;
+    layer_blocked l = {};
+    l.learning_rate_scale = 1;
+    l.type = CONNECTED;
+
+    l.inputs = inputs;
+    l.outputs = outputs;
+    l.batch=batch;
+    l.batch_normalize = batch_normalize;
+    l.h = 1;
+    l.w = 1;
+    l.c = inputs;
+    l.out_h = 1;
+    l.out_w = 1;
+    l.out_c = outputs;
+
+    //l.output = (float*)calloc(batch*outputs, sizeof(float));
+    l.output = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({batch*outputs});
+    //l.delta = (float*)calloc(batch*outputs, sizeof(float));
+    l.delta = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({batch*outputs});
+
+    //l.weight_updates = (float*)calloc(inputs*outputs, sizeof(float));
+    l.weight_updates = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({inputs*outputs});
+    //l.bias_updates = (float*)calloc(outputs, sizeof(float));
+    l.bias_updates = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+
+    //l.weights = (float*)calloc(outputs*inputs, sizeof(float));
+    l.weights = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs*inputs});
+    //l.biases = (float*)calloc(outputs, sizeof(float));
+    l.biases = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+
+    l.forward_blocked = forward_connected_layer_blocked;
+    l.backward_blocked = backward_connected_layer_blocked;
+    l.update_blocked = update_connected_layer_blocked;
+
+    //float scale = 1./sqrt(inputs);
+    float scale = sqrt(2./inputs);
+    BLOCK_ENGINE_INIT_FOR_LOOP(l.weights, weights_valid_range, weights_block_val_ptr, float)
+    for(i = 0; i < outputs*inputs; ++i){
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.weights, weights_valid_range, weights_block_val_ptr, true, weights_index, i)
+        *(weights_block_val_ptr+weights_index-weights_valid_range.block_requested_ind) = scale*rand_uniform(-1, 1);
+        //l.weights[i] = scale*rand_uniform(-1, 1);
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(l.weights, weights_valid_range)
+
+    BLOCK_ENGINE_INIT_FOR_LOOP(l.biases, biases_valid_range, biases_block_val_ptr, float)
+    for(i = 0; i < outputs; ++i){
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.biases, biases_valid_range, biases_block_val_ptr, true, biases_index, i)
+        *(biases_block_val_ptr+biases_index-biases_valid_range.block_requested_ind) = 0.0;
+        //l.biases[i] = 0;
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(l.biases, biases_valid_range)
+
+    if(adam){
+        //l.m = (float*)calloc(l.inputs*l.outputs, sizeof(float));
+        l.m = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({l.inputs*l.outputs});
+        //l.v = (float*)calloc(l.inputs*l.outputs, sizeof(float));
+        l.v = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({l.inputs*l.outputs});
+        //l.bias_m = (float*)calloc(l.outputs, sizeof(float));
+        l.bias_m = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({l.outputs});
+        //l.scale_m = (float*)calloc(l.outputs, sizeof(float));
+        l.scale_m = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({l.outputs});
+        //l.bias_v = (float*)calloc(l.outputs, sizeof(float));
+        l.bias_v = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({l.outputs});
+        //l.scale_v = (float*)calloc(l.outputs, sizeof(float));
+        l.scale_v = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({l.outputs});
+    }
+    if(batch_normalize){
+        //l.scales = (float*)calloc(outputs, sizeof(float));
+        l.scales = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+        //l.scale_updates = (float*)calloc(outputs, sizeof(float));
+        l.scale_updates = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+        BLOCK_ENGINE_INIT_FOR_LOOP(l.scales, scales_valid_range, scales_block_val_ptr, float)
+        for(i = 0; i < outputs; ++i){
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.scales, scales_valid_range, scales_block_val_ptr, true, scales_index_var, i)
+            *(scales_block_val_ptr+scales_index_var-scales_valid_range.block_requested_ind) = 1.0;
+            //l.scales[i] = 1;
+        }
+        BLOCK_ENGINE_LAST_UNLOCK(l.scales, scales_valid_range)
+
+        //l.mean = (float*)calloc(outputs, sizeof(float));
+        l.mean = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+        //l.mean_delta = (float*)calloc(outputs, sizeof(float));
+        l.mean_delta = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+        //l.variance = (float*)calloc(outputs, sizeof(float));
+        l.variance = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+        //l.variance_delta = (float*)calloc(outputs, sizeof(float));
+        l.variance_delta = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+
+        //l.rolling_mean = (float*)calloc(outputs, sizeof(float));
+        l.rolling_mean = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+        //l.rolling_variance = (float*)calloc(outputs, sizeof(float));
+        l.rolling_variance = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({outputs});
+
+        //l.x = (float*)calloc(batch*outputs, sizeof(float));
+        l.x = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({batch*outputs});
+        //l.x_norm = (float*)calloc(batch*outputs, sizeof(float));
+        l.x_norm = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({batch*outputs});
+    }
+    l.activation = activation;
+    //fprintf(stderr, "connected                            %4d  ->  %4d\n", inputs, outputs);
+    return l;
+}
+void update_connected_layer_blocked(layer_blocked l, update_args a)
+{
+    float learning_rate = a.learning_rate*l.learning_rate_scale;
+    float momentum = a.momentum;
+    float decay = a.decay;
+    int batch = a.batch;
+    axpy_cpu_blocked(l.outputs, learning_rate/batch, l.bias_updates, 1, l.biases, 1);
+    scal_cpu_blocked(l.outputs, momentum, l.bias_updates, 1);
+
+    if(l.batch_normalize){
+        axpy_cpu_blocked(l.outputs, learning_rate/batch, l.scale_updates, 1, l.scales, 1);
+        scal_cpu_blocked(l.outputs, momentum, l.scale_updates, 1);
+    }
+
+    axpy_cpu_blocked(l.inputs*l.outputs, -decay*batch, l.weights, 1, l.weight_updates, 1);
+    axpy_cpu_blocked(l.inputs*l.outputs, learning_rate/batch, l.weight_updates, 1, l.weights, 1);
+    scal_cpu_blocked(l.inputs*l.outputs, momentum, l.weight_updates, 1);
+}
+
+void forward_connected_layer_blocked(layer_blocked l, network_blocked net)
+{
+    fill_cpu_blocked(l.outputs*l.batch, 0, l.output, 1);
+    int m = l.batch;
+    int k = l.inputs;
+    int n = l.outputs;
+    //float *a = net.input;
+    //float *b = l.weights;
+    //float *c = l.output;
+    gemm_blocked(0,1,m,n,k,1,net.input,0,k,l.weights,0,k,1,l.output,0,n);
+    if(l.batch_normalize){
+        forward_batchnorm_layer_blocked(l, net);
+    } else {
+        add_bias_blocked(l.output, l.biases, l.batch, l.outputs, 1);
+    }
+    activate_array_blocked(l.output, l.outputs*l.batch, l.activation);
+}
+
+void backward_connected_layer_blocked(layer_blocked l, network_blocked net)
+{
+    gradient_array_blocked(l.output, l.outputs*l.batch, l.activation, l.delta);
+
+    if(l.batch_normalize){
+        backward_batchnorm_layer_blocked(l, net);
+    } else {
+        backward_bias_blocked(l.bias_updates, l.delta, l.batch, l.outputs, 1);
+    }
+
+    int m = l.outputs;
+    int k = l.batch;
+    int n = l.inputs;
+    //float *a = l.delta;
+    //float *b = net.input;
+    //float *c = l.weight_updates;
+    gemm_blocked(1,0,m,n,k,1,l.delta,0,m,net.input,0,n,1,l.weight_updates,0,n);
+
+    m = l.batch;
+    k = l.outputs;
+    n = l.inputs;
+
+    //a = l.delta;
+    //b = l.weights;
+    //c = net.delta;
+
+    if(net.delta) gemm_blocked(0,0,m,n,k,1,l.delta,0,k,l.weights,0,n,1,net.delta,0,n);
+}
+#endif
 
 void denormalize_connected_layer(layer l)
 {

@@ -3,6 +3,13 @@
 
 #include <stdlib.h>
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+void free_layer_blocked(layer_blocked) {
+    LOG_ERROR("This function yet implemented\n");
+    abort();
+}
+#endif
+
 void free_layer(layer l)
 {
     if(l.type == DROPOUT){

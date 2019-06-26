@@ -50,6 +50,40 @@ void backward_logistic_layer(const layer l, network net)
     axpy_cpu(l.inputs*l.batch, 1, l.delta, 1, net.delta, 1);
 }
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+layer_blocked make_logistic_layer_blocked(int batch, int inputs) {
+    layer_blocked l = {};
+    l.type = LOGXENT;
+    l.batch = batch;
+    l.inputs = inputs;
+    l.outputs = inputs;
+    // l.loss = (float*)calloc(inputs*batch, sizeof(float));
+    l.loss = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({inputs*batch});
+    // l.output = (float*)calloc(inputs*batch, sizeof(float));
+    l.output = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({inputs*batch});
+    // l.delta = (float*)calloc(inputs*batch, sizeof(float));
+    l.delta = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({inputs*batch});
+    l.cost = (float*)calloc(1, sizeof(float));
+
+    l.forward_blocked = forward_logistic_layer_blocked;
+    l.backward_blocked = backward_logistic_layer_blocked;
+
+    return l;
+}
+void forward_logistic_layer_blocked(const layer_blocked l, network_blocked net) {
+    copy_cpu_blocked(l.outputs*l.batch, net.input, 1, l.output, 1);
+    activate_array_blocked(l.output, l.outputs*l.batch, LOGISTIC);
+    if(net.truth){
+        logistic_x_ent_cpu_blocked(l.batch*l.inputs, l.output, net.truth, l.delta, l.loss);
+        l.cost[0] = sum_array_blocked(l.loss, l.batch*l.inputs,0);
+    }
+}
+void backward_logistic_layer_blocked(const layer_blocked l, network_blocked net) {
+    axpy_cpu_blocked(l.inputs*l.batch, 1, l.delta, 1, net.delta, 1);
+}
+
+#endif
+
 #ifdef GPU
 
 void forward_logistic_layer_gpu(const layer l, network net)

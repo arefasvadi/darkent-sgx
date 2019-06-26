@@ -61,6 +61,53 @@ void backward_softmax_layer(const softmax_layer l, network net)
     axpy_cpu(l.inputs*l.batch, 1, l.delta, 1, net.delta, 1);
 }
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+softmax_layer_blocked make_softmax_layer_blocked(int batch, int inputs, int groups) {
+    assert(inputs%groups == 0);
+    // fprintf(stderr, "softmax                                        %4d\n",  inputs);
+    softmax_layer_blocked l = {};
+    l.type = SOFTMAX;
+    l.batch = batch;
+    l.groups = groups;
+    l.inputs = inputs;
+    l.outputs = inputs;
+    // l.loss = (float*)calloc(inputs*batch, sizeof(float));
+    l.loss = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({inputs*batch});
+    // l.output = (float*)calloc(inputs*batch, sizeof(float));
+    l.output = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({inputs*batch});
+    // l.delta = (float*)calloc(inputs*batch, sizeof(float));
+    l.delta = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({inputs*batch});
+    l.cost = (float*)calloc(1, sizeof(float));
+
+    l.forward_blocked = forward_softmax_layer_blocked;
+    l.backward_blocked = backward_softmax_layer_blocked;
+    return l;
+}
+void forward_softmax_layer_blocked(const softmax_layer_blocked l, network_blocked net) {
+    if(l.softmax_tree){
+        /* int i;
+        int count = 0;
+        for (i = 0; i < l.softmax_tree->groups; ++i) {
+            int group_size = l.softmax_tree->group_size[i];
+            softmax_cpu(net.input + count, group_size, l.batch, l.inputs, 1, 0, 1, l.temperature, l.output + count);
+            count += group_size;
+        } */
+        LOG_ERROR("Softmax tree with blocking has not been implemented!")
+        abort();
+    } else {
+        softmax_cpu_blocked(net.input, l.inputs/l.groups, l.batch, l.inputs, l.groups, l.inputs/l.groups, 1, l.temperature, l.output);
+    }
+
+    if(net.truth){
+        softmax_x_ent_cpu_blocked(l.batch*l.inputs, l.output, net.truth, l.delta, l.loss);
+        l.cost[0] = sum_array_blocked(l.loss, l.batch*l.inputs,0);
+    }
+}
+void backward_softmax_layer_blocked(const softmax_layer_blocked l, network_blocked net) {
+    axpy_cpu_blocked(l.inputs*l.batch, 1, l.delta, 1, net.delta, 1);
+}
+#endif
+
 #ifdef GPU
 
 void pull_softmax_layer_output(const softmax_layer layer)

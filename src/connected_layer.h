@@ -5,6 +5,15 @@
 #include "layer.h"
 #include "network.h"
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+layer_blocked make_connected_layer_blocked(int batch, int inputs, int outputs, ACTIVATION activation, int batch_normalize, int adam);
+
+void forward_connected_layer_blocked(layer_blocked l, network_blocked net);
+void backward_connected_layer_blocked(layer_blocked l, network_blocked net);
+void update_connected_layer_blocked(layer_blocked l, update_args a);
+
+#endif
+
 layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activation, int batch_normalize, int adam);
 
 void forward_connected_layer(layer l, network net);

@@ -9,6 +9,12 @@ layer make_batchnorm_layer(int batch, int w, int h, int c);
 void forward_batchnorm_layer(layer l, network net);
 void backward_batchnorm_layer(layer l, network net);
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+layer_blocked make_batchnorm_layer_blocked(int batch, int w, int h, int c);
+void forward_batchnorm_layer_blocked(layer_blocked l, network_blocked net);
+void backward_batchnorm_layer_blocked(layer_blocked l, network_blocked net);
+#endif
+
 #ifdef GPU
 void forward_batchnorm_layer_gpu(layer l, network net);
 void backward_batchnorm_layer_gpu(layer l, network net);

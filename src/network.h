@@ -17,7 +17,10 @@ void compare_networks(network *n1, network *n2, data d);
 char *get_layer_string(LAYER_TYPE a);
 
 network *make_network(int n);
-
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+network_blocked *make_network_blocked(int n);
+void calc_network_cost_blocked(network_blocked *net);
+#endif
 
 float network_accuracy_multi(network *net, data d, int n);
 int get_predicted_class_network(network *net);

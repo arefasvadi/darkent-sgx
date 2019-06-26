@@ -95,6 +95,34 @@ float activate(float x, ACTIVATION a)
     return 0;
 }
 
+
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+void activate_array_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const int n, const ACTIVATION a) {
+    int i;
+    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
+    for(i = 0; i < n; ++i){
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, true, x_index_var, i)
+        *(x_block_val_ptr + x_index_var - x_valid_range.block_requested_ind) = activate(*(x_block_val_ptr + x_index_var - x_valid_range.block_requested_ind), a);
+        //x[i] = activate(x[i], a);
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(x, x_valid_range)
+}
+
+void gradient_array_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const int n, const ACTIVATION a, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta) {
+    int i;
+    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(delta, delta_valid_range, delta_block_val_ptr, float)
+    for(i = 0; i < n; ++i){
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, false, x_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(delta, delta_valid_range, delta_block_val_ptr, true, delta_index_var, i)
+        *(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind) *= gradient(*(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind), a);
+        //delta[i] *= gradient(x[i], a);
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(x, x_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(delta, delta_valid_range)
+}
+#endif
+
 void activate_array(float *x, const int n, const ACTIVATION a)
 {
     int i;

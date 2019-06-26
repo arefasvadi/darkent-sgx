@@ -44,6 +44,64 @@ void softmax(float *input, int n, float temp, int stride, float *output);
 void softmax_cpu(float *input, int n, int batch, int batch_offset, int groups, int group_offset, int stride, float temp, float *output);
 void upsample_cpu(float *in, int w, int h, int c, int batch, int stride, int forward, float scale, float *out);
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+// void flatten(float *x, int size, int layers, int batch, int forward);
+// void pm(int M, int N, float *A);
+// float *random_matrix(int rows, int cols);
+// void time_random_matrix(int TA, int TB, int m, int k, int n);
+// void reorg_cpu(float *x, int w, int h, int c, int batch, int stride, int forward, float *out);
+
+// void test_blas();
+
+// void inter_cpu(int NX, float *X, int NY, float *Y, int B, float *OUT);
+// void deinter_cpu(int NX, float *X, int NY, float *Y, int B, float *OUT);
+// void mult_add_into_cpu(int N, float *X, float *Y, float *Z);
+
+void const_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX);
+// void constrain_gpu(int N, float ALPHA, float * X, int INCX);
+void pow_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &Y, int INCY);
+void mul_cpu_blocked(int N, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &Y, int INCY);
+
+// int test_gpu_blas();
+void shortcut_cpu_blocked(int batch, int w1, int h1, int c1, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &add, int w2, int h2, int c2, float s1, float s2, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &out);
+
+void mean_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean);
+void variance_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance);
+
+void scale_bias_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &output, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &scales, int batch, int n, int size);
+
+void backward_scale_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x_norm, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, int batch, int n, int size, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &scale_updates);
+
+void mean_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean_delta);
+
+void  variance_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance_delta);
+
+void normalize_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean_delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance_delta, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta);
+
+void l2normalize_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &dx, int batch, int filters, int spatial);
+
+void smooth_l1_cpu_blocked(int n, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &pred, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &truth, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &error);
+
+void l2_cpu_blocked(int n, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &pred, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &truth, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &error);
+
+void l1_cpu_blocked(int n, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &pred, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &truth, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &error);
+
+void logistic_x_ent_cpu_blocked(int n, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &pred, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &truth, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &error);
+
+void softmax_x_ent_cpu_blocked(int n, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &pred, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &truth, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &error);
+
+void weighted_sum_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &a, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &b, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &s, int num, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &c);
+
+void weighted_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &a, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &b, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &s, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &da, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &db, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &ds, int n, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &dc);
+
+void softmax_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &input,int input_offset, int n, float temp, int stride, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &output,int output_offset);
+
+void softmax_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &input, int n, int batch, int batch_offset, int groups, int group_offset, int stride, float temp, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &output);
+
+void upsample_cpu(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &in, int w, int h, int c, int batch, int stride, int forward, float scale, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &out);
+
+#endif
+
 #ifdef GPU
 #include "cuda.h"
 #include "tree.h"

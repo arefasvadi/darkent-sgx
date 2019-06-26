@@ -4,6 +4,11 @@
 #include "cuda.h"
 #include "math.h"
 
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+void activate_array_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const int n, const ACTIVATION a);
+void gradient_array_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const int n, const ACTIVATION a, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta);
+#endif
+
 ACTIVATION get_activation(char *s);
 
 char *get_activation_string(ACTIVATION a);
