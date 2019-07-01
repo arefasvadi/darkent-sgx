@@ -57,8 +57,8 @@ void mean_arrays(float **a, int n, int els, float *avg);
 float dist_array(float *a, float *b, int n, int sub);
 float **one_hot_encode(float *a, int n, int k);
 #ifndef USE_SGX
-void print_statistics(float *a, int n);
 float sec(clock_t clocks);
+void print_statistics(float *a, int n);
 #else
 #endif
 

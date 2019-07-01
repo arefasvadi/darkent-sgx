@@ -152,6 +152,8 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
 {
     //printf("cpu: %d %d %d %d %d %f %d %d %f %d\n",TA, TB, M, N, K, ALPHA, lda, ldb, BETA, ldc);
     int i, j;
+    //LOG_DEBUG("TA:%d, TB:%d, M:%d, N:%d, K:%d, lda:%d, ldb:%d, ldc:%d\n",TA,TB,M,N,K,lda,ldb,ldc)
+    //LOG_DEBUG("indexes in range [%d,%d] will be used\n",0,N-1+(M-1)*ldc);
     for(i = 0; i < M; ++i){
         for(j = 0; j < N; ++j){
             C[i*ldc + j] *= BETA;
@@ -166,163 +168,6 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
     else
         gemm_tt(M, N, K, ALPHA,A,lda, B, ldb,C,ldc);
 }
-
-#if defined (USE_SGX) && defined(USE_SGX_BLOCKING)
-void gemm_nn_blocked(int M, int N, int K, float ALPHA, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
-{
-    int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
-    for(i = 0; i < M; ++i){
-        for(k = 0; k < K; ++k){
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, i*lda+k + A_offset)
-            register float A_PART = ALPHA* (*(A_block_val_ptr+A_current_index_var-A_valid_range.block_requested_ind));
-            //register float A_PART = ALPHA*A[i*lda+k];
-            for(j = 0; j < N; ++j){
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
-                *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += A_PART*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
-                //C[i*ldc+j] += A_PART*B[k*ldb+j];
-            }
-        }
-    }
-    BLOCK_ENGINE_LAST_UNLOCK(A, A_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(B, B_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(C, C_valid_range)
-}
-void gemm_tn_blocked(int M, int N, int K, float ALPHA, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
-{
-    int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
-    LOG_DEBUG("started gemm_tn_blocked\n")
-    for(i = 0; i < M; ++i){
-        for(k = 0; k < K; ++k){
-            //LOG_DEBUG("testi 1\n")
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, k*lda+i + A_offset)
-            register float A_PART = ALPHA*(*(A_block_val_ptr+A_current_index_var-A_valid_range.block_requested_ind));
-            //LOG_DEBUG("testi 1 Done\n")
-            //register float A_PART = ALPHA*A[k*lda+i];
-            for(j = 0; j < N; ++j){
-                LOG_DEBUG("testi 2\n")
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
-                *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += A_PART*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
-                //LOG_DEBUG("testi 2 Done\n")
-                //C[i*ldc+j] += A_PART*B[k*ldb+j];
-            }
-        }
-    }
-    BLOCK_ENGINE_LAST_UNLOCK(A, A_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(B, B_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(C, C_valid_range)
-    LOG_DEBUG("finished gemm_tn_blocked\n")
-}
-void gemm_nt_blocked(int M, int N, int K, float ALPHA, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
-{
-    //LOG_DEBUG("Entered gemm_nt_blocked!\n")
-    int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
-    for(i = 0; i < M; ++i){
-        for(j = 0; j < N; ++j){
-            register float sum = 0;
-            for(k = 0; k < K; ++k){
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index,i*lda+k+A_offset)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, j*ldb + k+B_offset)
-                sum += ALPHA*(*(A_block_val_ptr+A_current_index-A_valid_range.block_requested_ind))*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
-                //sum += ALPHA*A[i*lda+k]*B[j*ldb + k];
-            }
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
-            *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += sum;
-            //C[i*ldc+j] += sum;
-        }
-    }
-    BLOCK_ENGINE_LAST_UNLOCK(A, A_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(B, B_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(C, C_valid_range)
-    //LOG_DEBUG("Exitted gemm_nt_blocked!\n")
-}
-void gemm_tt_blocked(int M, int N, int K, float ALPHA, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
-{
-    int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
-    for(i = 0; i < M; ++i){
-        for(j = 0; j < N; ++j){
-            register float sum = 0;
-            for(k = 0; k < K; ++k){
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index,i+k*lda+A_offset)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k+j*ldb+B_offset)
-                sum += ALPHA*(*(A_block_val_ptr+A_current_index-A_valid_range.block_requested_ind))*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
-                //sum += ALPHA*A[i+k*lda]*B[k+j*ldb];
-            }
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
-            *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += sum;
-            //C[i*ldc+j] += sum;
-        }
-    }
-    BLOCK_ENGINE_LAST_UNLOCK(A, A_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(B, B_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(C, C_valid_range)
-}
-
-void gemm_cpu_blocked(int TA, int TB, int M, int N, int K, float ALPHA, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
-        float BETA,
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc) {
-
-        int i, j;
-        LOG_DEBUG("TA:%d, TB:%d, M:%d, N:%d, K:%d, lda:%d, ldb:%d, ldc:%d\n",TA,TB,M,N,K,lda,ldb,ldc)
-        LOG_DEBUG("C array flattened dim size: %d and indexes in range [%d,%d] will be used\n",C->GetDimSize()[0],C_offset,C_offset+N-1+(M-1)*ldc);
-        BLOCK_ENGINE_INIT_FOR_LOOP(C, c_valid_range, c_block_val_ptr, float)
-        for(i = 0; i < M; ++i){
-            for(j = 0; j < N; ++j){
-                LOG_DEBUG("gem cpu blocked request for flattened %u max dim size %u",i*ldc + j + C_offset,C->GetDimSize()[0])
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, c_valid_range, c_block_val_ptr, true, c_index_var, i*ldc + j + C_offset)
-                *(c_block_val_ptr + c_index_var - c_valid_range.block_requested_ind) *= BETA;
-                //C[i*ldc + j] *= BETA;
-            }
-        }
-        //LOG_DEBUG("finished dim size: %d and idexes in range [%d,%d] will be used\n",C->GetDimSize()[0],C_offset,C_offset+N-1+(M-1)*ldc);
-        BLOCK_ENGINE_LAST_UNLOCK(C, c_valid_range)
-
-        if(!TA && !TB)
-            gemm_nn_blocked(M, N, K, ALPHA,A,A_offset,lda, B,B_offset, ldb,C,C_offset,ldc);
-        else if(TA && !TB)
-            gemm_tn_blocked(M, N, K, ALPHA,A,A_offset ,lda, B,B_offset, ldb,C,C_offset,ldc);
-        else if(!TA && TB)
-            gemm_nt_blocked(M, N, K, ALPHA,A,A_offset,lda, B,B_offset, ldb,C,C_offset,ldc);
-        else
-            gemm_tt_blocked(M, N, K, ALPHA,A,A_offset,lda, B,B_offset, ldb,C,C_offset,ldc);
-
-}
-
-void gemm_blocked(int TA, int TB, int M, int N, int K, float ALPHA, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
-        float BETA,
-        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc) {
-            return gemm_cpu_blocked(TA, TB, M, M, K, ALPHA, A, A_offset, lda, B, B_offset, ldb, BETA, C, C_offset, ldc);
-        }
-#endif
 
 #ifdef GPU
 
@@ -481,3 +326,162 @@ int test_gpu_blas()
 }
 #endif
 
+#if defined (USE_SGX) && defined(USE_SGX_BLOCKING)
+void gemm_nn_blocked(int M, int N, int K, float ALPHA, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
+{
+    int i,j,k;
+    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    for(i = 0; i < M; ++i){
+        for(k = 0; k < K; ++k){
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, i*lda+k + A_offset)
+            register float A_PART = ALPHA* (*(A_block_val_ptr+A_current_index_var-A_valid_range.block_requested_ind));
+            //register float A_PART = ALPHA*A[i*lda+k];
+            for(j = 0; j < N; ++j){
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+                *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += A_PART*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
+                //C[i*ldc+j] += A_PART*B[k*ldb+j];
+            }
+        }
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(A, A_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(B, B_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(C, C_valid_range)
+}
+void gemm_tn_blocked(int M, int N, int K, float ALPHA, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
+{
+    int i,j,k;
+    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    //LOG_DEBUG("started gemm_tn_blocked\n")
+    for(i = 0; i < M; ++i){
+        for(k = 0; k < K; ++k){
+            //LOG_DEBUG("testi 1\n")
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, k*lda+i + A_offset)
+            register float A_PART = ALPHA*(*(A_block_val_ptr+A_current_index_var-A_valid_range.block_requested_ind));
+            //register float A_PART = ALPHA*A[k*lda+i];
+            for(j = 0; j < N; ++j){
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+                *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += A_PART*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
+                //LOG_DEBUG("testi 2 Done\n")
+                //C[i*ldc+j] += A_PART*B[k*ldb+j];
+            }
+        }
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(A, A_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(B, B_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(C, C_valid_range)
+    //LOG_DEBUG("finished gemm_tn_blocked\n")
+}
+void gemm_nt_blocked(int M, int N, int K, float ALPHA, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
+{
+    //LOG_DEBUG("Entered gemm_nt_blocked!\n")
+    int i,j,k;
+    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    for(i = 0; i < M; ++i){
+        for(j = 0; j < N; ++j){
+            register float sum = 0;
+            for(k = 0; k < K; ++k){
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index,i*lda+k+A_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, j*ldb + k+B_offset)
+                sum += ALPHA*(*(A_block_val_ptr+A_current_index-A_valid_range.block_requested_ind))*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
+                //sum += ALPHA*A[i*lda+k]*B[j*ldb + k];
+            }
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+            *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += sum;
+            //C[i*ldc+j] += sum;
+        }
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(A, A_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(B, B_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(C, C_valid_range)
+    //LOG_DEBUG("Exitted gemm_nt_blocked!\n")
+}
+void gemm_tt_blocked(int M, int N, int K, float ALPHA, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
+{
+    int i,j,k;
+    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    for(i = 0; i < M; ++i){
+        for(j = 0; j < N; ++j){
+            register float sum = 0;
+            for(k = 0; k < K; ++k){
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index,i+k*lda+A_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k+j*ldb+B_offset)
+                sum += ALPHA*(*(A_block_val_ptr+A_current_index-A_valid_range.block_requested_ind))*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
+                //sum += ALPHA*A[i+k*lda]*B[k+j*ldb];
+            }
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+            *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += sum;
+            //C[i*ldc+j] += sum;
+        }
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(A, A_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(B, B_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(C, C_valid_range)
+}
+
+void gemm_cpu_blocked(int TA, int TB, int M, int N, int K, float ALPHA, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
+        float BETA,
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc) {
+
+        int i, j;
+        //LOG_DEBUG("TA:%d, TB:%d, M:%d, N:%d, K:%d, lda:%d, ldb:%d, ldc:%d\n",TA,TB,M,N,K,lda,ldb,ldc)
+        //LOG_DEBUG("C array flattened dim size: %d and indexes in range [%d,%d] will be used\n",C->GetTotalElements(),0,N-1+(M-1)*ldc);
+        BLOCK_ENGINE_INIT_FOR_LOOP(C, c_valid_range, c_block_val_ptr, float)
+        for(i = 0; i < M; ++i){
+            for(j = 0; j < N; ++j){
+                //LOG_DEBUG("gem cpu blocked request for flattened %u max dim size %u",i*ldc + j + C_offset,C->GetDimSize()[0])
+                //if (i*ldc + j + C_offset >= C->GetDimSize()[0] || i*ldc + j + C_offset < 0) {
+                    //LOG_DEBUG("problem will arise soon i:%d,j:%d\n",i,j)
+                    //LOG_DEBUG("TA:%d, TB:%d, M:%d, N:%d, K:%d, lda:%d, ldb:%d, ldc:%d, C_offset:%d\n",TA,TB,M,N,K,lda,ldb,ldc,C_offset)
+                    //LOG_DEBUG("C array flattened dim size: %d and indexes in range [%d,%d] will be used\n",C->GetDimSize()[0],C_offset,C_offset+N-1+(M-1)*ldc);
+                //}
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, c_valid_range, c_block_val_ptr, true, c_index_var, i*ldc + j + C_offset)
+                *(c_block_val_ptr + c_index_var - c_valid_range.block_requested_ind) *= BETA;
+                //C[i*ldc + j] *= BETA;
+            }
+        }
+        //LOG_DEBUG("finished dim size: %d and idexes in range [%d,%d] will be used\n",C->GetDimSize()[0],C_offset,C_offset+N-1+(M-1)*ldc);
+        BLOCK_ENGINE_LAST_UNLOCK(C, c_valid_range)
+
+        if(!TA && !TB)
+            gemm_nn_blocked(M, N, K, ALPHA,A,A_offset,lda, B,B_offset, ldb,C,C_offset,ldc);
+        else if(TA && !TB)
+            gemm_tn_blocked(M, N, K, ALPHA,A,A_offset ,lda, B,B_offset, ldb,C,C_offset,ldc);
+        else if(!TA && TB)
+            gemm_nt_blocked(M, N, K, ALPHA,A,A_offset,lda, B,B_offset, ldb,C,C_offset,ldc);
+        else
+            gemm_tt_blocked(M, N, K, ALPHA,A,A_offset,lda, B,B_offset, ldb,C,C_offset,ldc);
+
+}
+
+void gemm_blocked(int TA, int TB, int M, int N, int K, float ALPHA, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &A, int A_offset,int lda, 
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &B, int B_offset,int ldb,
+        float BETA,
+        const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc) {
+            return gemm_cpu_blocked(TA, TB, M, N, K, ALPHA, A, A_offset, lda, B, B_offset, ldb, BETA, C, C_offset, ldc);
+        }
+#endif

@@ -50,6 +50,26 @@ void backward_logistic_layer(const layer l, network net)
     axpy_cpu(l.inputs*l.batch, 1, l.delta, 1, net.delta, 1);
 }
 
+#ifdef GPU
+
+void forward_logistic_layer_gpu(const layer l, network net)
+{
+    copy_gpu(l.outputs*l.batch, net.input_gpu, 1, l.output_gpu, 1);
+    activate_array_gpu(l.output_gpu, l.outputs*l.batch, LOGISTIC);
+    if(net.truth){
+        logistic_x_ent_gpu(l.batch*l.inputs, l.output_gpu, net.truth_gpu, l.delta_gpu, l.loss_gpu);
+        cuda_pull_array(l.loss_gpu, l.loss, l.batch*l.inputs);
+        l.cost[0] = sum_array(l.loss, l.batch*l.inputs);
+    }
+}
+
+void backward_logistic_layer_gpu(const layer l, network net)
+{
+    axpy_gpu(l.batch*l.inputs, 1, l.delta_gpu, 1, net.delta_gpu, 1);
+}
+
+#endif
+
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
 layer_blocked make_logistic_layer_blocked(int batch, int inputs) {
     layer_blocked l = {};
@@ -80,26 +100,6 @@ void forward_logistic_layer_blocked(const layer_blocked l, network_blocked net) 
 }
 void backward_logistic_layer_blocked(const layer_blocked l, network_blocked net) {
     axpy_cpu_blocked(l.inputs*l.batch, 1, l.delta, 1, net.delta, 1);
-}
-
-#endif
-
-#ifdef GPU
-
-void forward_logistic_layer_gpu(const layer l, network net)
-{
-    copy_gpu(l.outputs*l.batch, net.input_gpu, 1, l.output_gpu, 1);
-    activate_array_gpu(l.output_gpu, l.outputs*l.batch, LOGISTIC);
-    if(net.truth){
-        logistic_x_ent_gpu(l.batch*l.inputs, l.output_gpu, net.truth_gpu, l.delta_gpu, l.loss_gpu);
-        cuda_pull_array(l.loss_gpu, l.loss, l.batch*l.inputs);
-        l.cost[0] = sum_array(l.loss, l.batch*l.inputs);
-    }
-}
-
-void backward_logistic_layer_gpu(const layer l, network net)
-{
-    axpy_gpu(l.batch*l.inputs, 1, l.delta_gpu, 1, net.delta_gpu, 1);
 }
 
 #endif

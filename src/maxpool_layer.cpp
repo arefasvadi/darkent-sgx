@@ -135,8 +135,8 @@ maxpool_layer_blocked make_maxpool_layer_blocked(int batch, int h, int w, int c,
     l.w = w;
     l.c = c;
     l.pad = padding;
-    l.out_w = (w + 2*padding)/stride;
-    l.out_h = (h + 2*padding)/stride;
+    l.out_w = (w + padding - size)/stride + 1;
+    l.out_h = (h + padding - size)/stride + 1;
     l.out_c = c;
     l.outputs = l.out_h * l.out_w * l.out_c;
     l.inputs = h*w*c;
@@ -156,8 +156,8 @@ maxpool_layer_blocked make_maxpool_layer_blocked(int batch, int h, int w, int c,
 }
 void forward_maxpool_layer_blocked(const maxpool_layer_blocked l, network_blocked net) {
     int b,i,j,k,m,n;
-    int w_offset = -l.pad;
-    int h_offset = -l.pad;
+    int w_offset = -l.pad/2;
+    int h_offset = -l.pad/2;
 
     int h = l.out_h;
     int w = l.out_w;
@@ -182,13 +182,11 @@ void forward_maxpool_layer_blocked(const maxpool_layer_blocked l, network_blocke
                             int valid = (cur_h >= 0 && cur_h < l.h &&
                                          cur_w >= 0 && cur_w < l.w);
                             // float val = (valid != 0) ? net.input[index] : -FLT_MAX;
-                            float val;
-                            if (valid !=0) {
+                            float val = -FLT_MAX;
+                            if (valid != 0) {
                                 BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(net.input, net_input_valid_range, net_input_block_val_ptr, false, net_input_index_var, index)
                                 // val =  net.input[index]
                                 val = *(net_input_block_val_ptr+net_input_index_var-net_input_valid_range.block_requested_ind);
-                            } else {
-                                val = -FLT_MAX;
                             }
                             max_i = (val > max) ? index : max_i;
                             max   = (val > max) ? val   : max;
