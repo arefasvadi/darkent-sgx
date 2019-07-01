@@ -8,17 +8,6 @@
 #include "network.h"
 
 typedef layer convolutional_layer;
-#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
-typedef layer_blocked convolutional_layer_blocked;
-convolutional_layer_blocked make_convolutional_layer_blocked(int batch, int h, int w, int c, int n, int groups, int size, int stride, int padding, ACTIVATION activation, int batch_normalize, int binary, int xnor, int adam);
-int convolutional_out_height_blocked(convolutional_layer_blocked layer);
-int convolutional_out_width_blocked(convolutional_layer_blocked layer);
-void forward_convolutional_layer_blocked(const convolutional_layer_blocked layer, network_blocked net);
-void update_convolutional_layer_blocked(convolutional_layer_blocked layer, update_args a);
-void backward_convolutional_layer_blocked(convolutional_layer_blocked layer, network_blocked net);
-void add_bias_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &output, const  std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &biases, int batch, int n, int size);
-void backward_bias_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> & bias_updates, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, int batch, int n, int size);
-#endif
 
 #ifdef GPU
 void forward_convolutional_layer_gpu(convolutional_layer layer, network net);
@@ -56,6 +45,18 @@ image get_convolutional_weight(convolutional_layer layer, int i);
 
 int convolutional_out_height(convolutional_layer layer);
 int convolutional_out_width(convolutional_layer layer);
+
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+typedef layer_blocked convolutional_layer_blocked;
+convolutional_layer_blocked make_convolutional_layer_blocked(int batch, int h, int w, int c, int n, int groups, int size, int stride, int padding, ACTIVATION activation, int batch_normalize, int binary, int xnor, int adam);
+int convolutional_out_height_blocked(convolutional_layer_blocked layer);
+int convolutional_out_width_blocked(convolutional_layer_blocked layer);
+void forward_convolutional_layer_blocked(const convolutional_layer_blocked layer, network_blocked net);
+void update_convolutional_layer_blocked(convolutional_layer_blocked layer, update_args a);
+void backward_convolutional_layer_blocked(convolutional_layer_blocked layer, network_blocked net);
+void add_bias_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &output, const  std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &biases, int batch, int n, int size);
+void backward_bias_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> & bias_updates, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, int batch, int n, int size);
+#endif
 
 #endif
 

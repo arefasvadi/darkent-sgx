@@ -9,9 +9,9 @@
 #include "box.h"
 #include "darknet.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+//#ifdef __cplusplus
+//extern "C" {
+//#endif
 
 #ifdef OPENCV
 void *open_video_stream(const char *f, int c, int w, int h, int fps);
@@ -61,9 +61,9 @@ void copy_image_into(image src, image dest);
 
 image get_image_layer(image m, int l);
 
-#ifdef __cplusplus
-}
-#endif
+//#ifdef __cplusplus
+//}
+//#endif
 
 #endif
 

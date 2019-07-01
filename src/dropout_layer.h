@@ -12,6 +12,12 @@ void forward_dropout_layer(dropout_layer l, network net);
 void backward_dropout_layer(dropout_layer l, network net);
 void resize_dropout_layer(dropout_layer *l, int inputs);
 
+#ifdef GPU
+void forward_dropout_layer_gpu(dropout_layer l, network net);
+void backward_dropout_layer_gpu(dropout_layer l, network net);
+
+#endif
+
 #if defined(USE_SGX) && defined(USE_SGX_BLOCKING)
 typedef layer_blocked dropout_layer_blocked;
 
@@ -19,11 +25,5 @@ dropout_layer_blocked make_dropout_layer_blocked(int batch, int inputs, float pr
 
 void forward_dropout_layer_blocked(dropout_layer_blocked l, network_blocked net);
 void backward_dropout_layer_blocked(dropout_layer_blocked l, network_blocked net);
-#endif
-
-#ifdef GPU
-void forward_dropout_layer_gpu(dropout_layer l, network net);
-void backward_dropout_layer_gpu(dropout_layer l, network net);
-
 #endif
 #endif

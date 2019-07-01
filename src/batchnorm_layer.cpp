@@ -72,208 +72,6 @@ layer make_batchnorm_layer(int batch, int w, int h, int c)
     return l;
 }
 
-#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
-layer_blocked make_batchnorm_layer_blocked(int batch, int w, int h, int c) {
-    layer_blocked l = {};
-    l.type = BATCHNORM;
-    l.batch = batch;
-    l.h = l.out_h = h;
-    l.w = l.out_w = w;
-    l.c = l.out_c = c;
-    // l.output = (float*)calloc(h * w * c * batch, sizeof(float));
-    l.output = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({h * w * c * batch});
-    // l.delta  = (float*)calloc(h * w * c * batch, sizeof(float));
-    l.delta  = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({h * w * c * batch});
-    l.inputs = w*h*c;
-    l.outputs = l.inputs;
-
-    // l.scales = (float*)calloc(c, sizeof(float));
-    l.scales = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
-    // l.scale_updates = (float*)calloc(c, sizeof(float));
-    l.scale_updates = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
-    // l.biases = (float*)calloc(c, sizeof(float));
-    l.biases = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
-    // l.bias_updates = (float*)calloc(c, sizeof(float));
-    l.bias_updates = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
-    int i;
-    BLOCK_ENGINE_INIT_FOR_LOOP(l.scales, scales_range, scales_ptr, float)
-    for(i = 0; i < c; ++i){
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.scales, scales_range, scales_ptr, true, scales_ind, i)
-        *(scales_ptr + scales_ind - scales_range.block_requested_ind) = 1.0;
-    }
-    BLOCK_ENGINE_LAST_UNLOCK(l.scales, scales_range)
-    
-    // l.mean = (float*)calloc(c, sizeof(float));
-    l.mean = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
-    // l.variance = (float*)calloc(c, sizeof(float));
-    l.variance = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
-
-    // l.rolling_mean = (float*)calloc(c, sizeof(float));
-    l.rolling_mean = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
-    // l.rolling_variance = (float*)calloc(c, sizeof(float));
-    l.rolling_variance = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
-
-    l.forward_blocked = forward_batchnorm_layer_blocked;
-    l.backward_blocked = backward_batchnorm_layer_blocked;
-}
-
-void forward_batchnorm_layer_blocked(layer_blocked l, network_blocked net)
-{
-    if(l.type == BATCHNORM) copy_cpu_blocked(l.outputs*l.batch, net.input, 1, l.output, 1);
-    copy_cpu_blocked(l.outputs*l.batch, l.output, 1, l.x, 1);
-    if(net.train){
-        mean_cpu_blocked(l.output, l.batch, l.out_c, l.out_h*l.out_w, l.mean);
-        variance_cpu_blocked(l.output, l.mean, l.batch, l.out_c, l.out_h*l.out_w, l.variance);
-
-        scal_cpu_blocked(l.out_c, .99, l.rolling_mean, 1);
-        axpy_cpu_blocked(l.out_c, .01, l.mean, 1, l.rolling_mean, 1);
-        scal_cpu_blocked(l.out_c, .99, l.rolling_variance, 1);
-        axpy_cpu_blocked(l.out_c, .01, l.variance, 1, l.rolling_variance, 1);
-
-        normalize_cpu_blocked(l.output, l.mean, l.variance, l.batch, l.out_c, l.out_h*l.out_w);   
-        copy_cpu_blocked(l.outputs*l.batch, l.output, 1, l.x_norm, 1);
-    } else {
-        normalize_cpu_blocked(l.output, l.rolling_mean, l.rolling_variance, l.batch, l.out_c, l.out_h*l.out_w);
-    }
-    scale_bias_blocked(l.output, l.scales, l.batch, l.out_c, l.out_h*l.out_w);
-    add_bias_blocked(l.output, l.biases, l.batch, l.out_c, l.out_h*l.out_w);
-}
-
-void backward_batchnorm_layer_blocked(layer_blocked l, network_blocked net)
-{
-    if(!net.train){
-        l.mean = l.rolling_mean;
-        l.variance = l.rolling_variance;
-    }
-    backward_bias_blocked(l.bias_updates, l.delta, l.batch, l.out_c, l.out_w*l.out_h);
-    backward_scale_cpu_blocked(l.x_norm, l.delta, l.batch, l.out_c, l.out_w*l.out_h, l.scale_updates);
-
-    scale_bias_blocked(l.delta, l.scales, l.batch, l.out_c, l.out_h*l.out_w);
-
-    mean_delta_cpu_blocked(l.delta, l.variance, l.batch, l.out_c, l.out_w*l.out_h, l.mean_delta);
-    variance_delta_cpu_blocked(l.x, l.delta, l.mean, l.variance, l.batch, l.out_c, l.out_w*l.out_h, l.variance_delta);
-    normalize_delta_cpu_blocked(l.x, l.mean, l.variance, l.mean_delta, l.variance_delta, l.batch, l.out_c, l.out_w*l.out_h, l.delta);
-    if(l.type == BATCHNORM) copy_cpu_blocked(l.outputs*l.batch, l.delta, 1, net.delta, 1);
-}
-
-void backward_scale_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x_norm, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, int batch, int n, int size, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &scale_updates) {
-    int i,b,f;
-    BLOCK_ENGINE_INIT_FOR_LOOP(x_norm, x_norm_valid_range, x_norm_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(delta, delta_valid_range, delta_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(scale_updates, scale_updates_valid_range, scale_updates_block_val_ptr, float)
-    for(f = 0; f < n; ++f){
-        float sum = 0;
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(scale_updates, scale_updates_valid_range, scale_updates_block_val_ptr, true, scale_updates_index_var, f)
-        for(b = 0; b < batch; ++b){
-            for(i = 0; i < size; ++i){
-                int index = i + size*(f + n*b);
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(delta, delta_valid_range, delta_block_val_ptr, false, delta_index_var, index)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x_norm, x_norm_valid_range, x_norm_block_val_ptr, false, x_norm_index_var, index)
-                sum += (*(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind)) * (*(x_norm_block_val_ptr+x_norm_index_var-x_norm_valid_range.block_requested_ind));
-                // sum += delta[index] * x_norm[index];
-            }
-        }
-        *(scale_updates_block_val_ptr+scale_updates_index_var-scale_updates_valid_range.block_requested_ind) += sum;
-        //scale_updates[f] += sum;
-    }
-    BLOCK_ENGINE_LAST_UNLOCK(x_norm, x_norm_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(delta, delta_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(scale_updates, scale_updates_valid_range)
-}
-
-void mean_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean_delta) {
-    int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(delta, delta_valid_range, delta_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(mean_delta, mean_delta_valid_range, mean_delta_block_val_ptr, float)
-    for(i = 0; i < filters; ++i){
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean_delta, mean_delta_valid_range, mean_delta_block_val_ptr, true, mean_delta_index_var, i)
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, false,variance_index_var, i)
-        *(mean_delta_block_val_ptr+mean_delta_index_var-mean_delta_valid_range.block_requested_ind) = 0.0;
-        //mean_delta[i] = 0;
-        for (j = 0; j < batch; ++j) {
-            for (k = 0; k < spatial; ++k) {
-                int index = j*filters*spatial + i*spatial + k;
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(delta, delta_valid_range, delta_block_val_ptr, false, delta_index_var, index)
-                *(mean_delta_block_val_ptr+mean_delta_index_var-mean_delta_valid_range.block_requested_ind) += *(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind);
-                // mean_delta[i] += delta[index];
-            }
-        }
-        *(mean_delta_block_val_ptr+mean_delta_index_var-mean_delta_valid_range.block_requested_ind) *= (-1./sqrt(*(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind) + .00001f));
-        // mean_delta[i] *= (-1./sqrt(variance[i] + .00001f));
-    }
-    BLOCK_ENGINE_LAST_UNLOCK(delta, delta_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(variance, variance_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(mean_delta, mean_delta_valid_range)
-}
-
-void  variance_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance_delta) {
-    int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(delta, delta_valid_range, delta_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(variance_delta, variance_delta_valid_range, variance_delta_block_val_ptr, float)
-    for(i = 0; i < filters; ++i){
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance_delta, variance_delta_valid_range, variance_delta_block_val_ptr,true, variance_delta_index_var, i)
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, false, variance_index_var, i)
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, i)
-        *(variance_delta_block_val_ptr+variance_delta_index_var-variance_delta_valid_range.block_requested_ind) = 0.0;
-        //variance_delta[i] = 0;
-        for(j = 0; j < batch; ++j){
-            for(k = 0; k < spatial; ++k){
-                int index = j*filters*spatial + i*spatial + k;
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(delta, delta_valid_range, delta_block_val_ptr, false, delta_index_var, index)
-                *(variance_delta_block_val_ptr+variance_delta_index_var-variance_delta_valid_range.block_requested_ind) += *(delta_block_val_ptr + delta_index_var-delta_valid_range.block_requested_ind)*(*(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) - *(mean_block_val_ptr+mean_index_var-mean_valid_range.block_requested_ind));
-                //variance_delta[i] += delta[index]*(x[index] - mean[i]);
-            }
-        }
-        *(variance_delta_block_val_ptr+variance_delta_index_var-variance_delta_valid_range.block_requested_ind) *= -.5 * pow(*(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind) + .00001f, (float)(-3./2.));
-        //variance_delta[i] *= -.5 * pow(variance[i] + .00001f, (float)(-3./2.));
-    }
-    BLOCK_ENGINE_LAST_UNLOCK(x, x_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(delta, delta_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(mean, mean_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(variance, variance_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(variance_delta, variance_delta_valid_range)
-}
-
-void normalize_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean_delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance_delta, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta) {
-    int f, j, k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(delta, delta_valid_range, delta_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(variance_delta, variance_delta_valid_range, variance_delta_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(mean_delta, mean_delta_valid_range, mean_delta_block_val_ptr, float)
-    for(j = 0; j < batch; ++j) {
-        for(f = 0; f < filters; ++f){
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, false, variance_index_var, f)
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance_delta, variance_delta_valid_range, variance_delta_block_val_ptr, false, variance_delta_index_var, f)
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, f)
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean_delta, mean_delta_valid_range, mean_delta_block_val_ptr, false, mean_delta_index_var, f)
-            for(k = 0; k < spatial; ++k){
-                int index = j*filters*spatial + f*spatial + k;
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(delta, delta_valid_range, delta_block_val_ptr, true, delta_index_var, index)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
-                *(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind) = 
-                    (*(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind) * 1./(sqrt(*(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind) + .00001f)) ) + 
-                    (*(variance_delta_block_val_ptr+variance_delta_index_var-variance_delta_valid_range.block_requested_ind) * 
-                    2. * (*(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) - *(mean_block_val_ptr+mean_index_var-mean_valid_range.block_requested_ind)) / (spatial * batch)) + (*(mean_delta_block_val_ptr+mean_delta_index_var-mean_delta_valid_range.block_requested_ind)/(spatial*batch));
-                //delta[index] = delta[index] * 1./(sqrt(variance[f] + .00001f)) + variance_delta[f] * 2. * (x[index] - mean[f]) / (spatial * batch) + mean_delta[f]/(spatial*batch);
-            }
-        }
-    }
-    BLOCK_ENGINE_LAST_UNLOCK(x, x_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(delta, delta_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(mean, mean_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(variance, variance_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(variance_delta, variance_delta_valid_range)
-    BLOCK_ENGINE_LAST_UNLOCK(mean_delta, mean_delta_valid_range)
-}
-#endif
-
 void backward_scale_cpu(float *x_norm, float *delta, int batch, int n, int size, float *scale_updates)
 {
     int i,b,f;
@@ -483,5 +281,207 @@ void backward_batchnorm_layer_gpu(layer l, network net)
     normalize_delta_gpu(l.x_gpu, l.mean_gpu, l.variance_gpu, l.mean_delta_gpu, l.variance_delta_gpu, l.batch, l.out_c, l.out_w*l.out_h, l.delta_gpu);
 #endif
     if(l.type == BATCHNORM) copy_gpu(l.outputs*l.batch, l.delta_gpu, 1, net.delta_gpu, 1);
+}
+#endif
+
+#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
+layer_blocked make_batchnorm_layer_blocked(int batch, int w, int h, int c) {
+    layer_blocked l = {};
+    l.type = BATCHNORM;
+    l.batch = batch;
+    l.h = l.out_h = h;
+    l.w = l.out_w = w;
+    l.c = l.out_c = c;
+    // l.output = (float*)calloc(h * w * c * batch, sizeof(float));
+    l.output = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({h * w * c * batch});
+    // l.delta  = (float*)calloc(h * w * c * batch, sizeof(float));
+    l.delta  = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({h * w * c * batch});
+    l.inputs = w*h*c;
+    l.outputs = l.inputs;
+
+    // l.scales = (float*)calloc(c, sizeof(float));
+    l.scales = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
+    // l.scale_updates = (float*)calloc(c, sizeof(float));
+    l.scale_updates = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
+    // l.biases = (float*)calloc(c, sizeof(float));
+    l.biases = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
+    // l.bias_updates = (float*)calloc(c, sizeof(float));
+    l.bias_updates = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
+    int i;
+    BLOCK_ENGINE_INIT_FOR_LOOP(l.scales, scales_range, scales_ptr, float)
+    for(i = 0; i < c; ++i){
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.scales, scales_range, scales_ptr, true, scales_ind, i)
+        *(scales_ptr + scales_ind - scales_range.block_requested_ind) = 1.0;
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(l.scales, scales_range)
+    
+    // l.mean = (float*)calloc(c, sizeof(float));
+    l.mean = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
+    // l.variance = (float*)calloc(c, sizeof(float));
+    l.variance = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
+
+    // l.rolling_mean = (float*)calloc(c, sizeof(float));
+    l.rolling_mean = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
+    // l.rolling_variance = (float*)calloc(c, sizeof(float));
+    l.rolling_variance = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({c});
+
+    l.forward_blocked = forward_batchnorm_layer_blocked;
+    l.backward_blocked = backward_batchnorm_layer_blocked;
+}
+
+void forward_batchnorm_layer_blocked(layer_blocked l, network_blocked net)
+{
+    if(l.type == BATCHNORM) copy_cpu_blocked(l.outputs*l.batch, net.input, 1, l.output, 1);
+    copy_cpu_blocked(l.outputs*l.batch, l.output, 1, l.x, 1);
+    if(net.train){
+        mean_cpu_blocked(l.output, l.batch, l.out_c, l.out_h*l.out_w, l.mean);
+        variance_cpu_blocked(l.output, l.mean, l.batch, l.out_c, l.out_h*l.out_w, l.variance);
+
+        scal_cpu_blocked(l.out_c, .99, l.rolling_mean, 1);
+        axpy_cpu_blocked(l.out_c, .01, l.mean, 1, l.rolling_mean, 1);
+        scal_cpu_blocked(l.out_c, .99, l.rolling_variance, 1);
+        axpy_cpu_blocked(l.out_c, .01, l.variance, 1, l.rolling_variance, 1);
+
+        normalize_cpu_blocked(l.output, l.mean, l.variance, l.batch, l.out_c, l.out_h*l.out_w);   
+        copy_cpu_blocked(l.outputs*l.batch, l.output, 1, l.x_norm, 1);
+    } else {
+        normalize_cpu_blocked(l.output, l.rolling_mean, l.rolling_variance, l.batch, l.out_c, l.out_h*l.out_w);
+    }
+    scale_bias_blocked(l.output, l.scales, l.batch, l.out_c, l.out_h*l.out_w);
+    add_bias_blocked(l.output, l.biases, l.batch, l.out_c, l.out_h*l.out_w);
+}
+
+void backward_batchnorm_layer_blocked(layer_blocked l, network_blocked net)
+{
+    if(!net.train){
+        l.mean = l.rolling_mean;
+        l.variance = l.rolling_variance;
+    }
+    backward_bias_blocked(l.bias_updates, l.delta, l.batch, l.out_c, l.out_w*l.out_h);
+    backward_scale_cpu_blocked(l.x_norm, l.delta, l.batch, l.out_c, l.out_w*l.out_h, l.scale_updates);
+
+    scale_bias_blocked(l.delta, l.scales, l.batch, l.out_c, l.out_h*l.out_w);
+
+    mean_delta_cpu_blocked(l.delta, l.variance, l.batch, l.out_c, l.out_w*l.out_h, l.mean_delta);
+    variance_delta_cpu_blocked(l.x, l.delta, l.mean, l.variance, l.batch, l.out_c, l.out_w*l.out_h, l.variance_delta);
+    normalize_delta_cpu_blocked(l.x, l.mean, l.variance, l.mean_delta, l.variance_delta, l.batch, l.out_c, l.out_w*l.out_h, l.delta);
+    if(l.type == BATCHNORM) copy_cpu_blocked(l.outputs*l.batch, l.delta, 1, net.delta, 1);
+}
+
+void backward_scale_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x_norm, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, int batch, int n, int size, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &scale_updates) {
+    int i,b,f;
+    BLOCK_ENGINE_INIT_FOR_LOOP(x_norm, x_norm_valid_range, x_norm_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(delta, delta_valid_range, delta_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(scale_updates, scale_updates_valid_range, scale_updates_block_val_ptr, float)
+    for(f = 0; f < n; ++f){
+        float sum = 0;
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(scale_updates, scale_updates_valid_range, scale_updates_block_val_ptr, true, scale_updates_index_var, f)
+        for(b = 0; b < batch; ++b){
+            for(i = 0; i < size; ++i){
+                int index = i + size*(f + n*b);
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(delta, delta_valid_range, delta_block_val_ptr, false, delta_index_var, index)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x_norm, x_norm_valid_range, x_norm_block_val_ptr, false, x_norm_index_var, index)
+                sum += (*(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind)) * (*(x_norm_block_val_ptr+x_norm_index_var-x_norm_valid_range.block_requested_ind));
+                // sum += delta[index] * x_norm[index];
+            }
+        }
+        *(scale_updates_block_val_ptr+scale_updates_index_var-scale_updates_valid_range.block_requested_ind) += sum;
+        //scale_updates[f] += sum;
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(x_norm, x_norm_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(delta, delta_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(scale_updates, scale_updates_valid_range)
+}
+
+void mean_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean_delta) {
+    int i,j,k;
+    BLOCK_ENGINE_INIT_FOR_LOOP(delta, delta_valid_range, delta_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(mean_delta, mean_delta_valid_range, mean_delta_block_val_ptr, float)
+    for(i = 0; i < filters; ++i){
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean_delta, mean_delta_valid_range, mean_delta_block_val_ptr, true, mean_delta_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, false,variance_index_var, i)
+        *(mean_delta_block_val_ptr+mean_delta_index_var-mean_delta_valid_range.block_requested_ind) = 0.0;
+        //mean_delta[i] = 0;
+        for (j = 0; j < batch; ++j) {
+            for (k = 0; k < spatial; ++k) {
+                int index = j*filters*spatial + i*spatial + k;
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(delta, delta_valid_range, delta_block_val_ptr, false, delta_index_var, index)
+                *(mean_delta_block_val_ptr+mean_delta_index_var-mean_delta_valid_range.block_requested_ind) += *(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind);
+                // mean_delta[i] += delta[index];
+            }
+        }
+        *(mean_delta_block_val_ptr+mean_delta_index_var-mean_delta_valid_range.block_requested_ind) *= (-1./sqrt(*(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind) + .00001f));
+        // mean_delta[i] *= (-1./sqrt(variance[i] + .00001f));
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(delta, delta_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(variance, variance_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(mean_delta, mean_delta_valid_range)
+}
+
+void  variance_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance_delta) {
+    int i,j,k;
+    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(delta, delta_valid_range, delta_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(variance_delta, variance_delta_valid_range, variance_delta_block_val_ptr, float)
+    for(i = 0; i < filters; ++i){
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance_delta, variance_delta_valid_range, variance_delta_block_val_ptr,true, variance_delta_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, false, variance_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, i)
+        *(variance_delta_block_val_ptr+variance_delta_index_var-variance_delta_valid_range.block_requested_ind) = 0.0;
+        //variance_delta[i] = 0;
+        for(j = 0; j < batch; ++j){
+            for(k = 0; k < spatial; ++k){
+                int index = j*filters*spatial + i*spatial + k;
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(delta, delta_valid_range, delta_block_val_ptr, false, delta_index_var, index)
+                *(variance_delta_block_val_ptr+variance_delta_index_var-variance_delta_valid_range.block_requested_ind) += *(delta_block_val_ptr + delta_index_var-delta_valid_range.block_requested_ind)*(*(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) - *(mean_block_val_ptr+mean_index_var-mean_valid_range.block_requested_ind));
+                //variance_delta[i] += delta[index]*(x[index] - mean[i]);
+            }
+        }
+        *(variance_delta_block_val_ptr+variance_delta_index_var-variance_delta_valid_range.block_requested_ind) *= -.5 * pow(*(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind) + .00001f, (float)(-3./2.));
+        //variance_delta[i] *= -.5 * pow(variance[i] + .00001f, (float)(-3./2.));
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(x, x_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(delta, delta_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(mean, mean_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(variance, variance_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(variance_delta, variance_delta_valid_range)
+}
+
+void normalize_delta_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean_delta, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance_delta, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta) {
+    int f, j, k;
+    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(delta, delta_valid_range, delta_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(variance_delta, variance_delta_valid_range, variance_delta_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP(mean_delta, mean_delta_valid_range, mean_delta_block_val_ptr, float)
+    for(j = 0; j < batch; ++j) {
+        for(f = 0; f < filters; ++f){
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, false, variance_index_var, f)
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance_delta, variance_delta_valid_range, variance_delta_block_val_ptr, false, variance_delta_index_var, f)
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, f)
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean_delta, mean_delta_valid_range, mean_delta_block_val_ptr, false, mean_delta_index_var, f)
+            for(k = 0; k < spatial; ++k){
+                int index = j*filters*spatial + f*spatial + k;
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(delta, delta_valid_range, delta_block_val_ptr, true, delta_index_var, index)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
+                *(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind) = 
+                    (*(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind) * 1./(sqrt(*(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind) + .00001f)) ) + 
+                    (*(variance_delta_block_val_ptr+variance_delta_index_var-variance_delta_valid_range.block_requested_ind) * 
+                    2. * (*(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) - *(mean_block_val_ptr+mean_index_var-mean_valid_range.block_requested_ind)) / (spatial * batch)) + (*(mean_delta_block_val_ptr+mean_delta_index_var-mean_delta_valid_range.block_requested_ind)/(spatial*batch));
+                //delta[index] = delta[index] * 1./(sqrt(variance[f] + .00001f)) + variance_delta[f] * 2. * (x[index] - mean[f]) / (spatial * batch) + mean_delta[f]/(spatial*batch);
+            }
+        }
+    }
+    BLOCK_ENGINE_LAST_UNLOCK(x, x_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(delta, delta_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(mean, mean_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(variance, variance_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(variance_delta, variance_delta_valid_range)
+    BLOCK_ENGINE_LAST_UNLOCK(mean_delta, mean_delta_valid_range)
 }
 #endif

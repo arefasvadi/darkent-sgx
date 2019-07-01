@@ -47,6 +47,21 @@ void backward_activation_layer(layer l, network net)
     copy_cpu(l.outputs*l.batch, l.delta, 1, net.delta, 1);
 }
 
+#ifdef GPU
+
+void forward_activation_layer_gpu(layer l, network net)
+{
+    copy_gpu(l.outputs*l.batch, net.input_gpu, 1, l.output_gpu, 1);
+    activate_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation);
+}
+
+void backward_activation_layer_gpu(layer l, network net)
+{
+    gradient_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation, l.delta_gpu);
+    copy_gpu(l.outputs*l.batch, l.delta_gpu, 1, net.delta_gpu, 1);
+}
+#endif
+
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
 layer_blocked make_activation_layer_blocked(int batch, int inputs, ACTIVATION activation) {
     layer_blocked l = {};
@@ -83,18 +98,4 @@ void backward_activation_layer_blocked(layer_blocked l, network_blocked net){
     copy_cpu_blocked(l.outputs*l.batch, l.delta, 1, net.delta, 1);
 }
 
-#endif
-#ifdef GPU
-
-void forward_activation_layer_gpu(layer l, network net)
-{
-    copy_gpu(l.outputs*l.batch, net.input_gpu, 1, l.output_gpu, 1);
-    activate_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation);
-}
-
-void backward_activation_layer_gpu(layer l, network net)
-{
-    gradient_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation, l.delta_gpu);
-    copy_gpu(l.outputs*l.batch, l.delta_gpu, 1, net.delta_gpu, 1);
-}
 #endif

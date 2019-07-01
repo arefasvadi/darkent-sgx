@@ -82,33 +82,19 @@ void option_insert(list *l, char *key, char *val)
     list_insert(l, p);
 }
 
-#ifndef USE_SGX
-
 void option_unused(list *l)
 {
   node *n = l->front;
   while(n){
     kvp *p = (kvp *)n->val;
     if(!p->used){
+      #ifndef USE_SGX
       fprintf(stderr, "Unused field: '%s = %s'\n", p->key, p->val);
+      #endif
     }
     n = n->next;
   }
 }
-#else
-void option_unused(list *l)
-{
-  node *n = l->front;
-  while(n){
-    kvp *p = (kvp *)n->val;
-    if(!p->used){
-      /* fprintf(stderr, "Unused field: '%s = %s'\n", p->key, p->val); */
-      abort();
-    }
-    n = n->next;
-  }
-}
-#endif
 
 char *option_find(list *l, char *key)
 {
