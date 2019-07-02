@@ -1247,6 +1247,8 @@ network_blocked *make_network_blocked(int n)
 void forward_network_blocked(network_blocked *netp) {
     network_blocked net = *netp;
     int i;
+    char *timee =  "forward blocked";
+    ocall_set_timing(timee,strlen(timee)+1, 1,0);
     for(i = 0; i < net.n; ++i){
         net.index = i;
         layer_blocked l = net.layers[i];
@@ -1260,6 +1262,8 @@ void forward_network_blocked(network_blocked *netp) {
             net.truth = l.output;
         }
     }
+    ocall_set_timing(timee,strlen(timee)+1, 0,0);
+
     //LOG_DEBUG("calculation cost layer in forward!")
     calc_network_cost_blocked(netp);
     //LOG_DEBUG("finished calculation cost layer in forward!")
@@ -1269,6 +1273,8 @@ void backward_network_blocked(network_blocked *netp) {
     network_blocked net = *netp;
     int i;
     network_blocked orig = net;
+    char *timee =  "backward blocked";
+    ocall_set_timing(timee,strlen(timee)+1, 1,0);
     for(i = net.n-1; i >= 0; --i){
         layer_blocked l = net.layers[i];
         //LOG_DEBUG("backward layer %d of %d of type %s\n",(i+1),net.n,get_layer_string(l.type))
@@ -1289,6 +1295,7 @@ void backward_network_blocked(network_blocked *netp) {
         l.backward_blocked(l, net);
         //LOG_DEBUG("finished backward!!")
     }
+    ocall_set_timing(timee,strlen(timee)+1, 0,0);
 }
 
 void update_network_blocked(network_blocked *netp) {
@@ -1305,7 +1312,8 @@ void update_network_blocked(network_blocked *netp) {
     a.eps = net.eps;
     ++*net.t;
     a.t = *net.t;
-
+    char *timee =  "update blocked";
+    ocall_set_timing(timee,strlen(timee)+1, 1,0);
     for(i = 0; i < net.n; ++i){
         layer_blocked l = net.layers[i];
         //LOG_DEBUG("processing update layer %d of %d\n",i+1,net.n)
@@ -1313,6 +1321,7 @@ void update_network_blocked(network_blocked *netp) {
             l.update_blocked(l, a);
         }
     }
+    ocall_set_timing(timee,strlen(timee)+1, 0,0);
 }
 
 void calc_network_cost_blocked(network_blocked *netp) {
@@ -1320,6 +1329,8 @@ void calc_network_cost_blocked(network_blocked *netp) {
     int i;
     float sum = 0;
     int count = 0;
+    char *timee =  "calc cost blocked";
+    ocall_set_timing(timee,strlen(timee)+1, 1,0);
     for(i = 0; i < net.n; ++i){
         //LOG_DEBUG("cost calc layer %d of %d",i+1,net.n)
         if(net.layers[i].cost){
@@ -1329,6 +1340,7 @@ void calc_network_cost_blocked(network_blocked *netp) {
         }
     }
     *net.cost = sum/count;
+     ocall_set_timing(timee,strlen(timee)+1, 0,0);
     //LOG_DEBUG("Cost is :%f and count:%d\n",*net.cost,count)
 }
 
