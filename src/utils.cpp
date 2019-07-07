@@ -760,9 +760,11 @@ float **one_hot_encode(float *a, int n, int k)
 float sum_array_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> & a, int n,int offset) {
     int i;
     float sum = 0;
-    BLOCK_ENGINE_INIT_FOR_LOOP(a, a_valid_range, a_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(a, a_valid_range, a_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(a, a_valid_range, a_block_val_ptr,a_index_var,false, float)
     for(i = 0; i < n; ++i) {
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(a, a_valid_range, a_block_val_ptr, false, a_index_var, i+offset)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(a, a_valid_range, a_block_val_ptr, false, a_index_var, i+offset)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(a, a_valid_range, a_block_val_ptr, false, a_index_var, i+offset)
         sum += *(a_block_val_ptr + a_index_var - a_valid_range.block_requested_ind);
         // sum += a[i];
     }

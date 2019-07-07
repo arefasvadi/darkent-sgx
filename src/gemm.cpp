@@ -333,17 +333,23 @@ void gemm_nn_blocked(int M, int N, int K, float ALPHA,
         const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
 {
     int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(A, A_valid_range, A_block_val_ptr, A_current_index_var, false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(B, B_valid_range, B_block_val_ptr, B_current_index, false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(C, C_valid_range, C_block_val_ptr, C_current_index, true, float)
     for(i = 0; i < M; ++i){
         for(k = 0; k < K; ++k){
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, i*lda+k + A_offset)
+            //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, i*lda+k + A_offset)
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, i*lda+k + A_offset)
             register float A_PART = ALPHA* (*(A_block_val_ptr+A_current_index_var-A_valid_range.block_requested_ind));
             //register float A_PART = ALPHA*A[i*lda+k];
             for(j = 0; j < N; ++j){
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
                 *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += A_PART*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
                 //C[i*ldc+j] += A_PART*B[k*ldb+j];
             }
@@ -359,19 +365,25 @@ void gemm_tn_blocked(int M, int N, int K, float ALPHA,
         const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &C, int C_offset,int ldc)
 {
     int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    // BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(A, A_valid_range, A_block_val_ptr,A_current_index_var,false,float)
+    // BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(B, B_valid_range, B_block_val_ptr,B_current_index,false,float)
+    // BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(C, C_valid_range, C_block_val_ptr,C_current_index,true,float)
     //LOG_DEBUG("started gemm_tn_blocked\n")
     for(i = 0; i < M; ++i){
         for(k = 0; k < K; ++k){
             //LOG_DEBUG("testi 1\n")
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, k*lda+i + A_offset)
+            //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, k*lda+i + A_offset)
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(A, A_valid_range, A_block_val_ptr, false, A_current_index_var, k*lda+i + A_offset)
             register float A_PART = ALPHA*(*(A_block_val_ptr+A_current_index_var-A_valid_range.block_requested_ind));
             //register float A_PART = ALPHA*A[k*lda+i];
             for(j = 0; j < N; ++j){
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(B, B_valid_range, B_block_val_ptr, false, B_current_index, k*ldb+j+B_offset)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
                 *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += A_PART*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
                 //LOG_DEBUG("testi 2 Done\n")
                 //C[i*ldc+j] += A_PART*B[k*ldb+j];
@@ -390,19 +402,25 @@ void gemm_nt_blocked(int M, int N, int K, float ALPHA,
 {
     //LOG_DEBUG("Entered gemm_nt_blocked!\n")
     int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(A, A_valid_range, A_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(A, A_valid_range, A_block_val_ptr,A_current_index,false,float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(B, B_valid_range, B_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(B, B_valid_range, B_block_val_ptr,B_current_index,false,float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(C, C_valid_range, C_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(C, C_valid_range, C_block_val_ptr,C_current_index,true,float)
     for(i = 0; i < M; ++i){
         for(j = 0; j < N; ++j){
             register float sum = 0;
             for(k = 0; k < K; ++k){
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index,i*lda+k+A_offset)
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, j*ldb + k+B_offset)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(A, A_valid_range, A_block_val_ptr, false, A_current_index,i*lda+k+A_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(A, A_valid_range, A_block_val_ptr, false, A_current_index,i*lda+k+A_offset)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(B, B_valid_range, B_block_val_ptr, false, B_current_index, j*ldb + k+B_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(B, B_valid_range, B_block_val_ptr, false, B_current_index, j*ldb + k+B_offset)
                 sum += ALPHA*(*(A_block_val_ptr+A_current_index-A_valid_range.block_requested_ind))*(*(B_block_val_ptr+B_current_index-B_valid_range.block_requested_ind));
                 //sum += ALPHA*A[i*lda+k]*B[j*ldb + k];
             }
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+            //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(C, C_valid_range, C_block_val_ptr, true, C_current_index, i*ldc+j+C_offset)
             *(C_block_val_ptr+C_current_index-C_valid_range.block_requested_ind) += sum;
             //C[i*ldc+j] += sum;
         }

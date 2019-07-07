@@ -49,8 +49,10 @@ void col2im_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float,
     int width_col = (width + 2*pad - ksize) / stride + 1;
 
     int channels_col = channels * ksize * ksize;
-    BLOCK_ENGINE_INIT_FOR_LOOP(data_col, data_col_valid_range, data_col_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(data_im, data_im_valid_range, data_im_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(data_col, data_col_valid_range, data_col_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(data_col, data_col_valid_range, data_col_block_val_ptr,data_col_current_index,false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(data_im, data_im_valid_range, data_im_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(data_im, data_im_valid_range, data_im_block_val_ptr,data_im_current_index,true, float)
     for (c = 0; c < channels_col; ++c) {
         int w_offset = c % ksize;
         int h_offset = (c / ksize) % ksize;
@@ -69,9 +71,11 @@ void col2im_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float,
                 if (!(row < 0 || col < 0 ||
                     row >= height || col >= width)) {
                         int col_index = (c * height_col + h) * width_col + w;
-                        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(data_col, data_col_valid_range, data_col_block_val_ptr, false, data_col_current_index, col_index+data_col_offset)
+                        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(data_col, data_col_valid_range, data_col_block_val_ptr, false, data_col_current_index, col_index+data_col_offset)
+                        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(data_col, data_col_valid_range, data_col_block_val_ptr, false, data_col_current_index, col_index+data_col_offset)
                         double val = *(data_col_block_val_ptr+data_col_current_index-data_col_valid_range.block_requested_ind);
-                        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(data_im, data_im_valid_range, data_im_block_val_ptr, true, data_im_current_index,col + width*(row + height*c_im) + data_im_offset)
+                        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(data_im, data_im_valid_range, data_im_block_val_ptr, true, data_im_current_index,col + width*(row + height*c_im) + data_im_offset)
+                        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(data_im, data_im_valid_range, data_im_block_val_ptr, true, data_im_current_index,col + width*(row + height*c_im) + data_im_offset)
                         *(data_im_block_val_ptr+data_im_current_index-data_im_valid_range.block_requested_ind) += val;
                         //im[col + width*(row + height*channel)] += val;
                 }

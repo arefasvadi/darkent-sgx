@@ -154,9 +154,11 @@ void gradient_array(const float *x, const int n, const ACTIVATION a, float *delt
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
 void activate_array_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const int n, const ACTIVATION a) {
     int i;
-    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(x, x_valid_range, x_block_val_ptr,x_index_var,true, float)
     for(i = 0; i < n; ++i){
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, true, x_index_var, i)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, true, x_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(x, x_valid_range, x_block_val_ptr, true, x_index_var, i)
         *(x_block_val_ptr + x_index_var - x_valid_range.block_requested_ind) = activate(*(x_block_val_ptr + x_index_var - x_valid_range.block_requested_ind), a);
         //x[i] = activate(x[i], a);
     }

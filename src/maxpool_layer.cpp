@@ -163,9 +163,12 @@ void forward_maxpool_layer_blocked(const maxpool_layer_blocked l, network_blocke
     int w = l.out_w;
     int c = l.c;
 
-    BLOCK_ENGINE_INIT_FOR_LOOP(net.input, net_input_valid_range, net_input_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(l.indexes, indexes_valid_range, indexes_block_val_ptr, int)
-    BLOCK_ENGINE_INIT_FOR_LOOP(l.output, output_valid_range, output_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(net.input, net_input_valid_range, net_input_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(net.input, net_input_valid_range, net_input_block_val_ptr,net_input_index_var,false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(l.indexes, indexes_valid_range, indexes_block_val_ptr, int)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(l.indexes, indexes_valid_range, indexes_block_val_ptr,indexes_index_var,true, int)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(l.output, output_valid_range, output_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(l.output, output_valid_range, output_block_val_ptr,output_index_var,true, float)
 
     for(b = 0; b < l.batch; ++b){
         for(k = 0; k < c; ++k){
@@ -184,16 +187,21 @@ void forward_maxpool_layer_blocked(const maxpool_layer_blocked l, network_blocke
                             // float val = (valid != 0) ? net.input[index] : -FLT_MAX;
                             float val = -FLT_MAX;
                             if (valid != 0) {
-                                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(net.input, net_input_valid_range, net_input_block_val_ptr, false, net_input_index_var, index)
+                                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(net.input, net_input_valid_range, net_input_block_val_ptr, false, net_input_index_var, index)
+                                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(net.input, net_input_valid_range, net_input_block_val_ptr, false, net_input_index_var, index)
                                 // val =  net.input[index]
                                 val = *(net_input_block_val_ptr+net_input_index_var-net_input_valid_range.block_requested_ind);
+                                if (val > max) {
+                                    max_i = index;
+                                    max   = val;
+                                }
                             }
-                            max_i = (val > max) ? index : max_i;
-                            max   = (val > max) ? val   : max;
                         }
                     }
-                    BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.output, output_valid_range, output_block_val_ptr, true, output_index_var, out_index)
-                    BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.indexes, indexes_valid_range, indexes_block_val_ptr, true, indexes_index_var, out_index)
+                    //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.output, output_valid_range, output_block_val_ptr, true, output_index_var, out_index)
+                    BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(l.output, output_valid_range, output_block_val_ptr, true, output_index_var, out_index)
+                    //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.indexes, indexes_valid_range, indexes_block_val_ptr, true, indexes_index_var, out_index)
+                    BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(l.indexes, indexes_valid_range, indexes_block_val_ptr, true, indexes_index_var, out_index)
                     // l.output[out_index] = max;
                     *(output_block_val_ptr+output_index_var-output_valid_range.block_requested_ind) = max;
                     // l.indexes[out_index] = max_i;
@@ -211,15 +219,21 @@ void backward_maxpool_layer_blocked(const maxpool_layer_blocked l, network_block
     int h = l.out_h;
     int w = l.out_w;
     int c = l.c;
-    BLOCK_ENGINE_INIT_FOR_LOOP(l.indexes, indexes_valid_range, indexes_block_val_ptr, int)
-    BLOCK_ENGINE_INIT_FOR_LOOP(l.delta, delta_valid_range, delta_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(net.delta, net_delta_valid_range, net_delta_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(l.indexes, indexes_valid_range, indexes_block_val_ptr, int)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(l.indexes, indexes_valid_range, indexes_block_val_ptr,indexes_index_var,false, int)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(l.delta, delta_valid_range, delta_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(l.delta, delta_valid_range, delta_block_val_ptr,delta_index_var,false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(net.delta, net_delta_valid_range, net_delta_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(net.delta, net_delta_valid_range, net_delta_block_val_ptr,net_delta_index_var,true, float)
     for(i = 0; i < h*w*c*l.batch; ++i){
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.indexes, indexes_valid_range, indexes_block_val_ptr, false, indexes_index_var, i)
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.delta, delta_valid_range, delta_block_val_ptr, false, delta_index_var, i)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.indexes, indexes_valid_range, indexes_block_val_ptr, false, indexes_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(l.indexes, indexes_valid_range, indexes_block_val_ptr, false, indexes_index_var, i)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(l.delta, delta_valid_range, delta_block_val_ptr, false, delta_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(l.delta, delta_valid_range, delta_block_val_ptr, false, delta_index_var, i)
         // int index = l.indexes[i];
         int index = *(indexes_block_val_ptr+indexes_index_var-indexes_valid_range.block_requested_ind);
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(net.delta, net_delta_valid_range, net_delta_block_val_ptr, true, net_delta_index_var, index)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(net.delta, net_delta_valid_range, net_delta_block_val_ptr, true, net_delta_index_var, index)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(net.delta, net_delta_valid_range, net_delta_block_val_ptr, true, net_delta_index_var, index)
         // net.delta[index] += l.delta[i];
         *(net_delta_block_val_ptr+net_delta_index_var-net_delta_valid_range.block_requested_ind) += *(delta_block_val_ptr+delta_index_var-delta_valid_range.block_requested_ind);
     }

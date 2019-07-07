@@ -357,9 +357,11 @@ void upsample_cpu(float *in, int w, int h, int c, int batch, int stride, int for
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
 void fill_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX){
     int i;
-    BLOCK_ENGINE_INIT_FOR_LOOP(X, X_valid_range, X_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(X, X_valid_range, X_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(X, X_valid_range, X_ptr,X_index_var,true, float)
     for(i = 0; i < N; ++i) {
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(X, X_valid_range, X_ptr, true, X_index_var, i*INCX)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(X, X_valid_range, X_ptr, true, X_index_var, i*INCX)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(X, X_valid_range, X_ptr, true, X_index_var, i*INCX)
         *(X_ptr+X_index_var-X_valid_range.block_requested_ind) = ALPHA;
     }
     BLOCK_ENGINE_LAST_UNLOCK(X, X_valid_range)
@@ -369,15 +371,19 @@ void mean_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1
                     int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean) {
     float scale = 1./(batch * spatial);
     int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(x, x_valid_range, x_block_val_ptr,x_index_var,false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(mean, mean_valid_range, mean_block_val_ptr,mean_index_var,true, float)
     for(i = 0; i < filters; ++i){
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, true, mean_index_var, i)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, true, mean_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(mean, mean_valid_range, mean_block_val_ptr, true, mean_index_var, i)
         *(mean_block_val_ptr+mean_index_var-mean_valid_range.block_requested_ind) = 0.0;
         for(j = 0; j < batch; ++j){
             for(k = 0; k < spatial; ++k){
                 int index = j*filters*spatial + i*spatial + k;
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
                 *(mean_block_val_ptr+mean_index_var-mean_valid_range.block_requested_ind) += *(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind);
             }
         }
@@ -389,17 +395,23 @@ void mean_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1
 void variance_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, int batch, int filters, int spatial, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance) {
     float scale = 1./(batch * spatial - 1);
     int i,j,k;
-    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(x, x_valid_range, x_block_val_ptr,x_index_var,false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(mean, mean_valid_range, mean_block_val_ptr,mean_index_var,false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(variance, variance_valid_range, variance_block_val_ptr,variance_index_var,true, float)
     for(i = 0; i < filters; ++i){
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, true, variance_index_var, i)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, true, variance_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(variance, variance_valid_range, variance_block_val_ptr, true, variance_index_var, i)
         *(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind) = 0.0;
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, i)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, i)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, i)
         for(j = 0; j < batch; ++j){
             for(k = 0; k < spatial; ++k){
                 int index = j*filters*spatial + i*spatial + k;
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(x, x_valid_range, x_block_val_ptr, false, x_index_var, index)
                 *(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind) += pow(
                     (*(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) - *(mean_block_val_ptr+mean_index_var-mean_valid_range.block_requested_ind))
                     , 2);
@@ -415,9 +427,11 @@ void variance_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<floa
 void scal_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX)
 {
     int i;
-    BLOCK_ENGINE_INIT_FOR_LOOP(X, x_valid_range, x_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(X, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(X, x_valid_range, x_block_val_ptr, x_index_var,true,float)
     for(i = 0; i < N; ++i) {
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(X, x_valid_range, x_block_val_ptr, true, x_index_var, i*INCX)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(X, x_valid_range, x_block_val_ptr, true, x_index_var, i*INCX)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(X, x_valid_range, x_block_val_ptr, true, x_index_var, i*INCX)
         *(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) *= ALPHA;
     }
     BLOCK_ENGINE_LAST_UNLOCK(X, x_valid_range)
@@ -425,8 +439,10 @@ void scal_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::Bl
 
 void axpy_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &Y, int INCY) {
     int i;
-    BLOCK_ENGINE_INIT_FOR_LOOP(X, x_valid_range, x_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(Y, y_valid_range, y_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(X, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(X, x_valid_range, x_block_val_ptr,x_index_var,false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(Y, y_valid_range, y_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(Y, y_valid_range, y_block_val_ptr,y_index_var,true, float)
     for(i = 0; i < N; ++i) {
         BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(X, x_valid_range, x_block_val_ptr, false, x_index_var, i*INCX)
         BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(Y, y_valid_range, y_block_val_ptr, true, y_index_var, i*INCY)
@@ -438,16 +454,22 @@ void axpy_cpu_blocked(int N, float ALPHA, const std::shared_ptr<sgx::trusted::Bl
 
 void normalize_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &x, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &mean, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &variance, int batch, int filters, int spatial) {
     int b, f, i;
-    BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(x, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(x, x_valid_range, x_block_val_ptr,x_index_var,true, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(mean, mean_valid_range, mean_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(mean, mean_valid_range, mean_block_val_ptr,mean_index_var,false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(variance, variance_valid_range, variance_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(variance, variance_valid_range, variance_block_val_ptr,variance_index_var,false, float)
     for(b = 0; b < batch; ++b){
         for(f = 0; f < filters; ++f){
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, f)
-            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, false, variance_index_var, f)
+            //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, f)
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(mean, mean_valid_range, mean_block_val_ptr, false, mean_index_var, f)
+            //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(variance, variance_valid_range, variance_block_val_ptr, false, variance_index_var, f)
+            BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(variance, variance_valid_range, variance_block_val_ptr, false, variance_index_var, f)
             for(i = 0; i < spatial; ++i){
                 int index = b*filters*spatial + f*spatial + i;
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, true, x_index_var, index)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(x, x_valid_range, x_block_val_ptr, true, x_index_var, index)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(x, x_valid_range, x_block_val_ptr, true, x_index_var, index)
                 *(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) = (*(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) - *(mean_block_val_ptr+mean_index_var-mean_valid_range.block_requested_ind))/(sqrt(*(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind)) + .000001f);
                 // x[index] = (x[index] - mean[f])/(sqrt(variance[f]) + .000001f);
             }
@@ -461,11 +483,15 @@ void normalize_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<flo
 void copy_cpu_blocked(int N, const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &X, int INCX, 
                       const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &Y, int INCY) {
     int i;
-    BLOCK_ENGINE_INIT_FOR_LOOP(X, x_valid_range, x_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(Y, y_valid_range, y_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(X, x_valid_range, x_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(X, x_valid_range, x_block_val_ptr,x_current_index,false, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(Y, y_valid_range, y_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(Y, y_valid_range, y_block_val_ptr,y_current_index,true, float)
     for(i = 0; i < N; ++i) {
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(X, x_valid_range, x_block_val_ptr, false, x_current_index, i*INCX)
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(Y, y_valid_range, y_block_val_ptr, true, y_current_index, i*INCY)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(X, x_valid_range, x_block_val_ptr, false, x_current_index, i*INCX)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(X, x_valid_range, x_block_val_ptr, false, x_current_index, i*INCX)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(Y, y_valid_range, y_block_val_ptr, true, y_current_index, i*INCY)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(Y, y_valid_range, y_block_val_ptr, true, y_current_index, i*INCY)
         *(y_block_val_ptr + y_current_index - y_valid_range.block_requested_ind) = *(x_block_val_ptr+x_current_index-x_valid_range.block_requested_ind);
 
     }

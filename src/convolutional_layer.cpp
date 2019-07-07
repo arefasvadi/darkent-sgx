@@ -663,19 +663,17 @@ void scale_bias_blocked(
     const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &scales,
     int batch, int n, int size) {
   int i, j, b;
-  BLOCK_ENGINE_INIT_FOR_LOOP(output, output_valid_range, output_block_val_ptr,
-                             float)
-  BLOCK_ENGINE_INIT_FOR_LOOP(scales, scales_valid_range, scales_block_val_ptr,
-                             float)
+  //BLOCK_ENGINE_INIT_FOR_LOOP(output, output_valid_range, output_block_val_ptr,float)
+  BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(output, output_valid_range, output_block_val_ptr,output_index_var,true,float)
+  //BLOCK_ENGINE_INIT_FOR_LOOP(scales, scales_valid_range, scales_block_val_ptr,float)
+  BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(scales, scales_valid_range, scales_block_val_ptr,scales_current_index,false,float)
   for (b = 0; b < batch; ++b) {
     for (i = 0; i < n; ++i) {
-      BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(scales, scales_valid_range,
-                                          scales_block_val_ptr, false,
-                                          scales_current_index, i)
+      //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(scales, scales_valid_range, scales_block_val_ptr, false, scales_current_index, i)
+      BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(scales, scales_valid_range, scales_block_val_ptr, false, scales_current_index, i)
       for (j = 0; j < size; ++j) {
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(
-            output, output_valid_range, output_block_val_ptr, true,
-            output_index_var, (b * n + i) * size + j)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(output, output_valid_range, output_block_val_ptr, true, output_index_var, (b * n + i) * size + j)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(output, output_valid_range, output_block_val_ptr, true, output_index_var, (b * n + i) * size + j)
         *(output_block_val_ptr + output_index_var -
           output_valid_range.block_requested_ind) *=
             *(scales_block_val_ptr + scales_current_index -
@@ -693,19 +691,17 @@ void add_bias_blocked(
     const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &biases,
     int batch, int n, int size) {
   int i, j, b;
-  BLOCK_ENGINE_INIT_FOR_LOOP(output, output_valid_range, output_block_val_ptr,
-                             float)
-  BLOCK_ENGINE_INIT_FOR_LOOP(biases, biases_valid_range, biases_block_val_ptr,
-                             float)
+  //BLOCK_ENGINE_INIT_FOR_LOOP(output, output_valid_range, output_block_val_ptr, float)
+  BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(output, output_valid_range, output_block_val_ptr,output_index_var, true, float)
+  //BLOCK_ENGINE_INIT_FOR_LOOP(biases, biases_valid_range, biases_block_val_ptr, float)
+  BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(biases, biases_valid_range, biases_block_val_ptr,biases_current_index, false, float)
   for (b = 0; b < batch; ++b) {
     for (i = 0; i < n; ++i) {
-      BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(biases, biases_valid_range,
-                                          biases_block_val_ptr, false,
-                                          biases_current_index, i)
+      //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(biases, biases_valid_range, biases_block_val_ptr, false, biases_current_index, i)
+      BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(biases, biases_valid_range, biases_block_val_ptr, false, biases_current_index, i)
       for (j = 0; j < size; ++j) {
-        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(
-            output, output_valid_range, output_block_val_ptr, true,
-            output_index_var, (b * n + i) * size + j)
+        //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(output, output_valid_range, output_block_val_ptr, true, output_index_var, (b * n + i) * size + j)
+        BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(output, output_valid_range, output_block_val_ptr, true, output_index_var, (b * n + i) * size + j)
         *(output_block_val_ptr + output_index_var -
           output_valid_range.block_requested_ind) +=
             *(biases_block_val_ptr + biases_current_index -
@@ -723,13 +719,12 @@ void backward_bias_blocked(
     const std::shared_ptr<sgx::trusted::BlockedBuffer<float, 1>> &delta,
     int batch, int n, int size) {
   int i, b;
-  BLOCK_ENGINE_INIT_FOR_LOOP(bias_updates, bias_updates_valid_range,
-                             bias_updates_block_val_ptr, float)
+  //BLOCK_ENGINE_INIT_FOR_LOOP(bias_updates, bias_updates_valid_range, bias_updates_block_val_ptr, float)
+  BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(bias_updates, bias_updates_valid_range, bias_updates_block_val_ptr,bias_updates_index_var,true, float)
   for (b = 0; b < batch; ++b) {
     for (i = 0; i < n; ++i) {
-      BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(
-          bias_updates, bias_updates_valid_range, bias_updates_block_val_ptr,
-          true, bias_updates_index_var, i)
+      //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(bias_updates, bias_updates_valid_range, bias_updates_block_val_ptr,true, bias_updates_index_var, i)
+      BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(bias_updates, bias_updates_valid_range, bias_updates_block_val_ptr,true, bias_updates_index_var, i)
       *(bias_updates_block_val_ptr + bias_updates_index_var -
         bias_updates_valid_range.block_requested_ind) +=
           sum_array_blocked(delta, size, size * (i + b * n));

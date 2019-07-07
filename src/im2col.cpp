@@ -48,8 +48,10 @@ void im2col_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float,
     int width_col = (width + 2*pad - ksize) / stride + 1;
 
     int channels_col = channels * ksize * ksize;
-    BLOCK_ENGINE_INIT_FOR_LOOP(data_col, data_col_valid_range, data_col_block_val_ptr, float)
-    BLOCK_ENGINE_INIT_FOR_LOOP(data_im, data_im_valid_range, data_im_block_val_ptr, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(data_col, data_col_valid_range, data_col_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(data_col, data_col_valid_range, data_col_block_val_ptr,data_col_index_var,true, float)
+    //BLOCK_ENGINE_INIT_FOR_LOOP(data_im, data_im_valid_range, data_im_block_val_ptr, float)
+    BLOCK_ENGINE_INIT_FOR_LOOP_NEW_1D(data_im, data_im_valid_range, data_im_block_val_ptr,data_im_index_var,false, float)
     for (c = 0; c < channels_col; ++c) {
         int w_offset = c % ksize;
         int h_offset = (c / ksize) % ksize;
@@ -61,7 +63,8 @@ void im2col_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float,
                 int col_index = (c * height_col + h) * width_col + w;
                 int row = im_row - pad;
                 int col = im_col - pad;
-                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(data_col, data_col_valid_range, data_col_block_val_ptr, true, data_col_index_var, col_index+data_col_offset)
+                //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(data_col, data_col_valid_range, data_col_block_val_ptr, true, data_col_index_var, col_index+data_col_offset)
+                BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(data_col, data_col_valid_range, data_col_block_val_ptr, true, data_col_index_var, col_index+data_col_offset)
                 if (row < 0 || col < 0 ||
                         row >= height || col >= width) {
                             // return 0;
@@ -70,7 +73,8 @@ void im2col_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<float,
                 else {
                     // data_col[col_index] = im2col_get_pixel(data_im, height, width, channels,
                         // im_row, im_col, c_im, pad);
-                    BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(data_im, data_im_valid_range, data_im_block_val_ptr, false, data_im_index_var,col + width*(row + height*c_im)+data_im_offset)
+                    //BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D(data_im, data_im_valid_range, data_im_block_val_ptr, false, data_im_index_var,col + width*(row + height*c_im)+data_im_offset)
+                    BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(data_im, data_im_valid_range, data_im_block_val_ptr, false, data_im_index_var,col + width*(row + height*c_im)+data_im_offset)
                      *(data_col_block_val_ptr+data_col_index_var-data_col_valid_range.block_requested_ind) = *(data_im_block_val_ptr+data_im_index_var-data_im_valid_range.block_requested_ind);   
                 }
                 
