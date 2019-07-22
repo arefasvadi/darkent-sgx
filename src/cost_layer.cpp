@@ -38,6 +38,7 @@ char *get_cost_string(COST_TYPE a)
     return "sse";
 }
 
+#ifndef USE_SGX_LAYERWISE
 cost_layer make_cost_layer(int batch, int inputs, COST_TYPE cost_type, float scale)
 {
     fprintf(stderr, "cost                                           %4d\n",  inputs);
@@ -64,7 +65,9 @@ cost_layer make_cost_layer(int batch, int inputs, COST_TYPE cost_type, float sca
     #endif
     return l;
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void resize_cost_layer(cost_layer *l, int inputs)
 {
     l->inputs = inputs;
@@ -78,7 +81,9 @@ void resize_cost_layer(cost_layer *l, int inputs)
     l->output_gpu = cuda_make_array(l->output, inputs*l->batch);
 #endif
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void forward_cost_layer(cost_layer l, network net)
 {
     if (!net.truth) return;
@@ -97,11 +102,14 @@ void forward_cost_layer(cost_layer l, network net)
     }
     l.cost[0] = sum_array(l.output, l.batch*l.inputs);
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void backward_cost_layer(const cost_layer l, network net)
 {
     axpy_cpu(l.batch*l.inputs, l.scale, l.delta, 1, net.delta, 1);
 }
+#endif
 
 #ifdef GPU
 
@@ -171,6 +179,66 @@ void forward_cost_layer_gpu(cost_layer l, network net)
 void backward_cost_layer_gpu(const cost_layer l, network net)
 {
     axpy_gpu(l.batch*l.inputs, l.scale, l.delta_gpu, 1, net.delta_gpu, 1);
+}
+#endif
+
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+cost_layer make_cost_layer(int batch, int inputs, COST_TYPE cost_type, float scale)
+{
+    //fprintf(stderr, "cost                                           %4d\n",  inputs);
+    cost_layer l = {};
+    l.type = COST;
+
+    l.scale = scale;
+    l.batch = batch;
+    l.inputs = inputs;
+    l.outputs = inputs;
+    l.cost_type = cost_type;
+    //l.delta = (float*)calloc(inputs*batch, sizeof(float));
+    l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*batch);
+    //l.output = (float*)calloc(inputs*batch, sizeof(float));
+    l.output = l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*batch);
+    l.cost = (float*)calloc(1, sizeof(float));
+
+    l.forward = forward_cost_layer;
+    l.backward = backward_cost_layer;
+    return l;
+}
+
+void forward_cost_layer(cost_layer l, network net)
+{
+    if (!net.truth) return;
+    if(l.cost_type == MASKED){
+        LOG_ERROR("Should not reach here!\n");
+        abort();
+        /* int i;
+        for(i = 0; i < l.batch*l.inputs; ++i){
+            if(net.truth[i] == SECRET_NUM) net.input[i] = SECRET_NUM;
+        } */
+    }
+    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    auto net_truth = net.truth->getItemsInRange(0, net.truth->getBufferSize());
+    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+
+    if(l.cost_type == SMOOTH){
+        smooth_l1_cpu(l.batch*l.inputs, &net_input[0], &net_truth[0], &l_delta[0], &l_output[0]);
+    }else if(l.cost_type == L1){
+        l1_cpu(l.batch*l.inputs, &net_input[0], &net_truth[0], &l_delta[0], &l_output[0]);
+    } else {
+        l2_cpu(l.batch*l.inputs, &net_input[0], &net_truth[0], &l_delta[0], &l_output[0]);
+    }
+    l.cost[0] = sum_array(&l_output[0], l.batch*l.inputs);
+    l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+}
+
+void backward_cost_layer(const cost_layer l, network net)
+{
+    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
+    axpy_cpu(l.batch*l.inputs, l.scale, &l_delta[0], 1, &net_delta[0], 1);
+    net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
 }
 #endif
 

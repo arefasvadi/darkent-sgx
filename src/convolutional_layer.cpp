@@ -12,6 +12,7 @@
 #include "xnor_layer.h"
 #endif
 
+#ifndef USE_SGX_LAYERWISE
 void swap_binary(convolutional_layer *l)
 {
     float *swap = l->weights;
@@ -24,6 +25,7 @@ void swap_binary(convolutional_layer *l)
     l->binary_weights_gpu = swap;
 #endif
 }
+#endif
 
 void binarize_weights(float *weights, int n, int size, float *binary)
 {
@@ -73,15 +75,19 @@ int convolutional_out_width(convolutional_layer l)
     return (l.w + 2*l.pad - l.size) / l.stride + 1;
 }
 
+#ifndef USE_SGX_LAYERWISE
 image get_convolutional_image(convolutional_layer l)
 {
     return float_to_image(l.out_w,l.out_h,l.out_c,l.output);
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 image get_convolutional_delta(convolutional_layer l)
 {
     return float_to_image(l.out_w,l.out_h,l.out_c,l.delta);
 }
+#endif
 
 static size_t get_workspace_size(layer l){
 #ifdef CUDNN
@@ -173,6 +179,7 @@ void cudnn_convolutional_setup(layer *l)
 #endif
 #endif
 
+#ifndef USE_SGX_LAYERWISE
 convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
                                              int n, int groups, int size,
                                              int stride, int padding,
@@ -214,6 +221,8 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   // 1);
   for (i = 0; i < l.nweights; ++i)
     l.weights[i] = scale * rand_normal();
+  
+  //LOG_DEBUG("INIT conv layer 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
   int out_w = convolutional_out_width(l);
   int out_h = convolutional_out_height(l);
   l.out_h = out_h;
@@ -333,7 +342,9 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
 
     return l;
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void denormalize_convolutional_layer(convolutional_layer l) {
   int i, j;
   for (i = 0; i < l.n; ++i) {
@@ -347,6 +358,7 @@ void denormalize_convolutional_layer(convolutional_layer l) {
     l.rolling_variance[i] = 1;
   }
 }
+#endif
 
 /*
 void test_convolutional_layer()
@@ -372,7 +384,7 @@ void test_convolutional_layer()
     //forward_convolutional_layer(l);
 }
 */
-
+#ifndef USE_SGX_LAYERWISE
 void resize_convolutional_layer(convolutional_layer *l, int w, int h) {
   l->w = w;
   l->h = h;
@@ -414,6 +426,7 @@ void resize_convolutional_layer(convolutional_layer *l, int w, int h) {
 #endif
     l->workspace_size = get_workspace_size(*l);
 }
+#endif
 
 void add_bias(float *output, float *biases, int batch, int n, int size)
 {
@@ -449,9 +462,10 @@ void backward_bias(float *bias_updates, float *delta, int batch, int n, int size
     }
 }
 
+#ifndef USE_SGX_LAYERWISE
 void forward_convolutional_layer(convolutional_layer l, network net)
 {
-  //LOG_DEBUG("237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
+  //LOG_DEBUG("before forward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
   int i, j;
 
   fill_cpu(l.outputs * l.batch, 0, l.output, 1);
@@ -496,7 +510,9 @@ void forward_convolutional_layer(convolutional_layer l, network net)
   if (l.binary || l.xnor)
     swap_binary(&l);
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void backward_convolutional_layer(convolutional_layer l, network net)
 {
     //LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
@@ -551,7 +567,9 @@ void backward_convolutional_layer(convolutional_layer l, network net)
     //LOG_DEBUG("after backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("after backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void update_convolutional_layer(convolutional_layer l, update_args a)
 {
     
@@ -578,8 +596,9 @@ void update_convolutional_layer(convolutional_layer l, update_args a)
     scal_cpu(l.nweights, momentum, l.weight_updates, 1);
     //LOG_DEBUG("after update 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
 }
+#endif
 
-
+#ifndef USE_SGX_LAYERWISE
 image get_convolutional_weight(convolutional_layer l, int i)
 {
     int h = l.size;
@@ -587,7 +606,9 @@ image get_convolutional_weight(convolutional_layer l, int i)
     int c = l.c/l.groups;
     return float_to_image(w,h,c,l.weights+i*h*w*c);
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void rgbgr_weights(convolutional_layer l)
 {
     int i;
@@ -598,7 +619,9 @@ void rgbgr_weights(convolutional_layer l)
         }
     }
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void rescale_weights(convolutional_layer l, float scale, float trans)
 {
     int i;
@@ -611,7 +634,9 @@ void rescale_weights(convolutional_layer l, float scale, float trans)
         }
     }
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 image *get_weights(convolutional_layer l) {
   image *weights = (image *)calloc(l.n, sizeof(image));
   int i;
@@ -627,6 +652,323 @@ image *get_weights(convolutional_layer l) {
   // error("hey");
   return weights;
 }
+#endif
+
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
+                                             int n, int groups, int size,
+                                             int stride, int padding,
+                                             ACTIVATION activation,
+                                             int batch_normalize, int binary,
+                                             int xnor, int adam) {
+  int i,j;
+  convolutional_layer l = {};
+  l.type = CONVOLUTIONAL;
+
+  l.groups = groups;
+  l.h = h;
+  l.w = w;
+  l.c = c;
+  l.n = n;
+  l.binary = binary;
+  l.xnor = xnor;
+  l.batch = batch;
+  l.stride = stride;
+  l.size = size;
+  l.pad = padding;
+  l.batch_normalize = batch_normalize;
+
+  //l.weights = (float *)calloc(c / groups * n * size * size, sizeof(float));
+  l.weights = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c / groups * n * size * size);
+  //l.weight_updates = (float *)calloc(c / groups * n * size * size, sizeof(float));
+  l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c / groups * n * size * size);
+
+  //l.biases = (float *)calloc(n, sizeof(float));
+  l.biases = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+  //l.bias_updates = (float *)calloc(n, sizeof(float));
+  l.bias_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+
+  l.nweights = c / groups * n * size * size;
+  l.nbiases = n;
+
+  // float scale = 1./sqrt(size*size*c);
+  float scale = sqrt(2. / (size * size * c / l.groups));
+  // printf("convscale %f\n", scale);
+  // scale = .02;
+  // for(i = 0; i < c*n*size*size; ++i) l.weights[i] = scale*rand_uniform(-1,
+  // 1);
+  {
+    auto ws = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+    for (i = 0; i < l.nweights; ++i)
+      ws[i] = scale * rand_normal();
+    l.weights->setItemsInRange(0, l.nweights,ws);
+    //LOG_DEBUG("INIT conv layer ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),ws[237],ws[121])
+  }
+  /* {
+    // just checking
+    auto ws = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+    LOG_DEBUG("INIT conv layer ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),ws[237],ws[121])
+  } */
+
+  int out_w = convolutional_out_width(l);
+  int out_h = convolutional_out_height(l);
+  l.out_h = out_h;
+  l.out_w = out_w;
+  l.out_c = n;
+  l.outputs = l.out_h * l.out_w * l.out_c;
+  l.inputs = l.w * l.h * l.c;
+
+  //l.output = (float *)calloc(l.batch * l.outputs, sizeof(float));
+  l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
+  //l.delta = (float *)calloc(l.batch * l.outputs, sizeof(float));
+  l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
+
+  l.forward = forward_convolutional_layer;
+  l.backward = backward_convolutional_layer;
+  l.update = update_convolutional_layer;
+  if (binary) {
+    //l.binary_weights = (float *)calloc(l.nweights, sizeof(float));
+    l.binary_weights = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.nweights);
+    //l.cweights = (char *)calloc(l.nweights, sizeof(char));
+    l.cweights = sgx::trusted::SpecialBuffer<char>::GetNewSpecialBuffer(l.nweights);
+    //l.scales = (float *)calloc(n, sizeof(float));
+    l.scales = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+  }
+  if (xnor) {
+    //l.binary_weights = (float *)calloc(l.nweights, sizeof(float));
+    l.binary_weights = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.nweights);
+    //l.binary_input = (float *)calloc(l.inputs * l.batch, sizeof(float));
+    l.binary_input = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.inputs * l.batch);
+  }
+
+  if (batch_normalize) {
+    //l.scales = (float *)calloc(n, sizeof(float));
+    l.scales = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    //l.scale_updates = (float *)calloc(n, sizeof(float));
+    l.scale_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+
+    {
+      auto scs = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+      for (i = 0; i < n; ++i)
+        scs[i] = 1;
+      l.scales->setItemsInRange(0, n,scs);
+    }
+
+    //l.mean = (float *)calloc(n, sizeof(float));
+    l.mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    //l.variance = (float *)calloc(n, sizeof(float));
+    l.variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+
+    //l.mean_delta = (float *)calloc(n, sizeof(float));
+    l.mean_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    //l.variance_delta = (float *)calloc(n, sizeof(float));
+    l.variance_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+
+    //l.rolling_mean = (float *)calloc(n, sizeof(float));
+    l.rolling_mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    //l.rolling_variance = (float *)calloc(n, sizeof(float));
+    l.rolling_variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    //l.x = (float *)calloc(l.batch * l.outputs, sizeof(float));
+    l.x = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
+    //l.x_norm = (float *)calloc(l.batch * l.outputs, sizeof(float));
+    l.x_norm = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
+  }
+  if (adam) {
+    //l.m = (float *)calloc(l.nweights, sizeof(float));
+    l.m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.nweights);
+    //l.v = (float *)calloc(l.nweights, sizeof(float));
+    l.v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.nweights);
+    //l.bias_m = (float *)calloc(n, sizeof(float));
+    l.bias_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    //l.scale_m = (float *)calloc(n, sizeof(float));
+    l.scale_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    //l.bias_v = (float *)calloc(n, sizeof(float));
+    l.bias_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    //l.scale_v = (float *)calloc(n, sizeof(float));
+    l.scale_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+  }
+
+  l.workspace_size = get_workspace_size(l);
+  l.activation = activation;
+
+  fprintf(stderr, "conv  %5d %2d x%2d /%2d  %4d x%4d x%4d   ->  %4d x%4d x%4d  %5.3f BFLOPs\n", n, size, size, stride, w, h, c, l.out_w, l.out_h, l.out_c, (2.0 * l.n * l.size*l.size*l.c/l.groups * l.out_h*l.out_w)/1000000000.);
+
+    return l;
+}
+
+void forward_convolutional_layer(convolutional_layer l, network net)
+{
+  int i, j;
+  auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+  auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+  auto n_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
+  auto n_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+  //LOG_DEBUG("before forward ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),l_weights[237],l_weights[121])
+
+  fill_cpu(l.outputs * l.batch, 0, &l_output[0], 1);
+
+  if (l.xnor) {
+    LOG_ERROR("XNOR feature not implemented!\n");
+    abort();
+    /* binarize_weights(l.weights, l.n, l.c / l.groups * l.size * l.size,
+                     l.binary_weights);
+    swap_binary(&l);
+    binarize_cpu(net.input, l.c * l.h * l.w * l.batch, l.binary_input);
+    net.input = l.binary_input; */
+  } 
+
+  int m = l.n / l.groups;
+  int k = l.size * l.size * l.c / l.groups;
+  int n = l.out_w * l.out_h;
+  //LOG_DEBUG("begining conv with parameters outputs:%d, batch:%d,groups:%d, m:%d, k:%d, n:%d, out_w:%d,out_h:%d,out_c:%d\n",l.outputs,l.batch,l.groups,m,k,n,l.out_w,l.out_h,l.out_c);
+  for (i = 0; i < l.batch; ++i) {
+    for (j = 0; j < l.groups; ++j) {
+      float *a = &l_weights[0] + j * l.nweights / l.groups;
+      float *b = &n_workspace[0];
+      float *c = &l_output[0] + (i * l.groups + j) * n * m;
+      float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+
+      if (l.size == 1) {
+          b = im;
+      } else {
+          im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
+          //LOG_DEBUG("Base start index for C (output) is %d",(i * l.groups + j) * n * m)
+      }
+      gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
+    }
+  }
+  //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
+
+  if (l.batch_normalize) {
+    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+    forward_batchnorm_layer(l, net);
+    l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+
+  } else {
+    auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+    add_bias(&l_output[0], &l_biases[0], l.batch, l.n, l.out_h * l.out_w);
+  }
+  activate_array(&l_output[0], l.outputs * l.batch, l.activation);
+  l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+  /* if (l.binary || l.xnor)
+    swap_binary(&l); */
+}
+
+void backward_convolutional_layer(convolutional_layer l, network net)
+{
+    //LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
+    //LOG_DEBUG("before backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
+    int i, j;
+    int m = l.n/l.groups;
+    int n = l.size*l.size*l.c/l.groups;
+    int k = l.out_w*l.out_h;
+    
+    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    auto net_delta  = net.delta ? net.delta->getItemsInRange(0, net.delta->getBufferSize()):std::vector<float>();
+  
+    auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
+    auto net_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
+    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+
+    {
+      auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+      gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+    }
+
+    if(l.batch_normalize){
+        l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+        backward_batchnorm_layer(l, net);
+        l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    } else {
+      auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+      backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.n, k);
+      l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    }
+
+    for(i = 0; i < l.batch; ++i){
+        for(j = 0; j < l.groups; ++j){
+            float *a = &l_delta[0] + (i*l.groups + j)*m*k;
+            float *b = &net_workspace[0];
+            float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
+            float *im  = &net_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+
+            if(l.size == 1){
+                b = im;
+            } else {
+                im2col_cpu(im, l.c/l.groups, l.h, l.w, 
+                        l.size, l.stride, l.pad, b);
+            }
+
+            gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+
+            if (net.delta != nullptr) {
+                auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+                a = &l_weights[0] + j*l.nweights/l.groups;
+                b = &l_delta[0] + (i*l.groups + j)*m*k;
+                float *imd = &net_delta[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+                c = &net_workspace[0];
+                if (l.size == 1) {
+                    c = imd;
+                }
+
+                gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
+
+                if (l.size != 1) {
+                    col2im_cpu(&net_workspace[0], l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
+                }
+            }
+        }
+    }
+    l.weight_updates->setItemsInRange(0, l.weight_updates->getBufferSize(),l_weight_updates);
+    l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+    if (net.delta != nullptr) {
+      net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
+    }
+    //LOG_DEBUG("after backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
+    //LOG_DEBUG("after backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
+}
+
+void update_convolutional_layer(convolutional_layer l, update_args a)
+{
+    
+    float learning_rate = a.learning_rate*l.learning_rate_scale;
+    float momentum = a.momentum;
+    float decay = a.decay;
+    int batch = a.batch;
+    //LOG_DEBUG("lr:%f,moment:%f,decay:%f,batch:%d total weights:%d\n",learning_rate,momentum,decay,batch,l.nweights)
+    //LOG_DEBUG("before update 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
+    {
+      auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+      auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+      axpy_cpu(l.n, learning_rate/batch, &l_bias_updates[0], 1, &l_biases[0], 1);
+      scal_cpu(l.n, momentum, &l_bias_updates[0], 1);
+      l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(),l_bias_updates);
+      l.biases->setItemsInRange(0, l.biases->getBufferSize(),l_biases);
+    }
+
+    if(l.scales){
+        auto l_scale_updates = l.scale_updates->getItemsInRange(0, l.scale_updates->getBufferSize());
+        auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+        axpy_cpu(l.n, learning_rate/batch, &l_scale_updates[0], 1, &l_scales[0], 1);
+        scal_cpu(l.n, momentum, &l_scale_updates[0], 1);
+        l.scale_updates->setItemsInRange(0, l.scale_updates->getBufferSize(),l_scale_updates);
+        l.scales->setItemsInRange(0, l.scales->getBufferSize(),l_scales);
+    }
+
+    //LOG_DEBUG("before update 237 and 121 weight updates are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
+    auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+    auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
+    axpy_cpu(l.nweights, -decay*batch, &l_weights[0], 1, &l_weight_updates[0], 1);
+    //LOG_DEBUG("here update 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
+    //LOG_DEBUG("here update 237 and 121 weight updates are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
+    axpy_cpu(l.nweights, learning_rate/batch, &l_weight_updates[0], 1, &l_weights[0], 1);
+    scal_cpu(l.nweights, momentum, &l_weight_updates[0], 1);
+    l.weights->setItemsInRange(0, l.weights->getBufferSize(),l_weights);
+    l.weight_updates->setItemsInRange(0, l.weight_updates->getBufferSize(),l_weight_updates);
+
+    //LOG_DEBUG("after update 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
+}
+#endif
 
 #ifndef USE_SGX
 image *visualize_convolutional_layer(convolutional_layer l, char *window,

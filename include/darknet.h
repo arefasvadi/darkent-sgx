@@ -8,10 +8,6 @@
 #include <pthread.h>
 #endif
 
-#if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
-#include "BlockEngine.hpp"
-#endif
-
 #define SECRET_NUM -1234
 extern int gpu_index;
 
@@ -119,7 +115,7 @@ typedef struct network network;
 
 struct layer;
 typedef struct layer layer;
-
+#if !defined (USE_SGX_LAYERWISE)
 struct layer{
     LAYER_TYPE type;
     ACTIVATION activation;
@@ -428,6 +424,7 @@ struct layer{
 #endif
 #endif
 };
+#endif
 
 void free_layer(layer);
 
@@ -435,6 +432,7 @@ typedef enum {
     CONSTANT, STEP, EXP, POLY, STEPS, SIG, RANDOM
 } learning_rate_policy;
 
+#if !defined (USE_SGX_LAYERWISE)
 typedef struct network{
     int n;
     int batch;
@@ -502,7 +500,7 @@ typedef struct network{
 #endif
 
 } network;
-
+#endif
 
 typedef struct {
     int w;
@@ -819,6 +817,358 @@ int *read_intlist(char *s, int *n, int d);
 size_t rand_size_t();
 float rand_normal();
 float rand_uniform(float min, float max);
+
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+    struct layer{
+    LAYER_TYPE type;
+    ACTIVATION activation;
+    COST_TYPE cost_type;
+    void (*forward)   (struct layer, struct network);
+    void (*backward)  (struct layer, struct network);
+    void (*update)    (struct layer, update_args);
+    void (*forward_gpu)   (struct layer, struct network);
+    void (*backward_gpu)  (struct layer, struct network);
+    void (*update_gpu)    (struct layer, update_args);
+    int batch_normalize;
+    int shortcut;
+    int batch;
+    int forced;
+    int flipped;
+    int inputs;
+    int outputs;
+    int nweights;
+    int nbiases;
+    int extra;
+    int truths;
+    int h,w,c;
+    int out_h, out_w, out_c;
+    int n;
+    int max_boxes;
+    int groups;
+    int size;
+    int side;
+    int stride;
+    int reverse;
+    int flatten;
+    int spatial;
+    int pad;
+    int sqrt;
+    int flip;
+    int index;
+    int binary;
+    int xnor;
+    int steps;
+    int hidden;
+    int truth;
+    float smooth;
+    float dot;
+    float angle;
+    float jitter;
+    float saturation;
+    float exposure;
+    float shift;
+    float ratio;
+    float learning_rate_scale;
+    float clip;
+    int noloss;
+    int softmax;
+    int classes;
+    int coords;
+    int background;
+    int rescore;
+    int objectness;
+    int joint;
+    int noadjust;
+    int reorg;
+    int log;
+    int tanh;
+    //int *mask;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<int>> mask;
+    int total;
+
+    float alpha;
+    float beta;
+    float kappa;
+
+    float coord_scale;
+    float object_scale;
+    float noobject_scale;
+    float mask_scale;
+    float class_scale;
+    int bias_match;
+    int random;
+    float ignore_thresh;
+    float truth_thresh;
+    float thresh;
+    float focus;
+    int classfix;
+    int absolute;
+
+    int onlyforward;
+    int stopbackward;
+    int dontload;
+    int dontsave;
+    int dontloadscales;
+    int numload;
+
+    float temperature;
+    float probability;
+    float scale;
+
+    //char  * cweights;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<char>> cweights;
+    //int   * indexes;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<int>> indexes;
+    //int   * input_layers;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<int>> input_layers;
+    //int   * input_sizes;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<int>> input_sizes;
+    //int   * map;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<int>> map;
+    // /int   * counts;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<int>> counts;
+    float ** sums;
+    //float * rand;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> rand;
+    float * cost;
+    //float * state;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> state;
+    //float * prev_state;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> prev_state;
+    //float * forgot_state;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> forgot_state;
+    //float * forgot_delta;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> forgot_delta;
+    //float * state_delta;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> state_delta;
+    //float * combine_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> combine_cpu;
+    //float * combine_delta_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> combine_delta_cpu;
+
+    //float * concat;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> concat;
+    //float * concat_delta;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> concat_delta;
+
+    //float * binary_weights;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> binary_weights;
+
+    //float * biases;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> biases;
+
+    //float * bias_updates;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> bias_updates;
+
+    //float * scales;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> scales;
+    //float * scale_updates;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> scale_updates;
+
+    //float * weights;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> weights;
+    //float * weight_updates;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> weight_updates;
+
+    //float * delta;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> delta;
+
+    //float * output;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> output;
+    //float * loss;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> loss;
+    //float * squared;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> squared;
+    //float * norms;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> norms;
+
+    //float * spatial_mean;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> spatial_mean;
+    //float * mean;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> mean;
+    //float * variance;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> variance;
+
+    //float * mean_delta;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> mean_delta;
+    //float * variance_delta;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> variance_delta;
+
+    //float * rolling_mean;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> rolling_mean;
+    //float * rolling_variance;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> rolling_variance;
+
+    //float * x;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> x;
+    //float * x_norm;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> x_norm;
+
+    //float * m;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> m;
+    //float * v;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> v;
+    
+    //float * bias_m;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> bias_m;
+    //float * bias_v;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> bias_v;
+    //float * scale_m;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> scale_m;
+    //float * scale_v;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> scale_v;
+
+
+    //float *z_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> z_cpu;
+    //float *r_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> r_cpu;
+    //float *h_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> h_cpu;
+    //float * prev_state_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> prev_state_cpu;
+
+    //float *temp_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> temp_cpu;
+    //float *temp2_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> temp2_cpu;
+    //float *temp3_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> temp3_cpu;
+
+    //float *dh_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> dh_cpu;
+    //float *hh_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> hh_cpu;
+    //float *prev_cell_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> prev_cell_cpu;
+    //float *cell_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> cell_cpu;
+    //float *f_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> f_cpu;
+    //float *i_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> i_cpu;
+    //float *g_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> g_cpu;
+    //float *o_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> o_cpu;
+    //float *c_cpu;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> c_cpu;
+    //float *dc_cpu; 
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> dc_cpu;
+
+    //float * binary_input;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> binary_input;
+
+    struct layer *input_layer;
+    struct layer *self_layer;
+    struct layer *output_layer;
+
+    struct layer *reset_layer;
+    struct layer *update_layer;
+    struct layer *state_layer;
+
+    struct layer *input_gate_layer;
+    struct layer *state_gate_layer;
+    struct layer *input_save_layer;
+    struct layer *state_save_layer;
+    struct layer *input_state_layer;
+    struct layer *state_state_layer;
+
+    struct layer *input_z_layer;
+    struct layer *state_z_layer;
+
+    struct layer *input_r_layer;
+    struct layer *state_r_layer;
+
+    struct layer *input_h_layer;
+    struct layer *state_h_layer;
+	
+    struct layer *wz;
+    struct layer *uz;
+    struct layer *wr;
+    struct layer *ur;
+    struct layer *wh;
+    struct layer *uh;
+    struct layer *uo;
+    struct layer *wo;
+    struct layer *uf;
+    struct layer *wf;
+    struct layer *ui;
+    struct layer *wi;
+    struct layer *ug;
+    struct layer *wg;
+
+    tree *softmax_tree;
+
+    size_t workspace_size;
+};
+
+typedef struct network{
+    int n;
+    int batch;
+    size_t *seen;
+    int *t;
+    float epoch;
+    int subdivisions;
+    layer *layers;
+    //float *output;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> output;
+    learning_rate_policy policy;
+
+    float learning_rate;
+    float momentum;
+    float decay;
+    float gamma;
+    float scale;
+    float power;
+    int time_steps;
+    int step;
+    int max_batches;
+    float *scales;
+    int   *steps;
+    int num_steps;
+    int burn_in;
+
+    int adam;
+    float B1;
+    float B2;
+    float eps;
+
+    int inputs;
+    int outputs;
+    int truths;
+    int notruth;
+    int h, w, c;
+    int max_crop;
+    int min_crop;
+    float max_ratio;
+    float min_ratio;
+    int center;
+    float angle;
+    float aspect;
+    float exposure;
+    float saturation;
+    float hue;
+    int random;
+
+    int gpu_index;
+    tree *hierarchy;
+
+    //float *input;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> input;
+    //float *truth;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> truth;
+    //float *delta;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> delta;
+    //float *workspace;
+    std::shared_ptr<sgx::trusted::SpecialBuffer<float>> workspace;
+    int train;
+    int index;
+    float *cost;
+    float clip;
+} network;
+
+#endif
 
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
 struct network_blocked;

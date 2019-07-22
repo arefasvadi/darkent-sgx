@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#ifndef USE_SGX_LAYERWISE
 dropout_layer make_dropout_layer(int batch, int inputs, float probability)
 {
     dropout_layer l = {};
@@ -24,7 +25,9 @@ dropout_layer make_dropout_layer(int batch, int inputs, float probability)
     fprintf(stderr, "dropout       p = %.2f               %4d  ->  %4d\n", probability, inputs, inputs);
     return l;
 } 
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void resize_dropout_layer(dropout_layer *l, int inputs)
 {
     l->rand = (float*)realloc(l->rand, l->inputs*l->batch*sizeof(float));
@@ -34,7 +37,9 @@ void resize_dropout_layer(dropout_layer *l, int inputs)
     l->rand_gpu = cuda_make_array(l->rand, inputs*l->batch);
     #endif
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void forward_dropout_layer(dropout_layer l, network net)
 {
     int i;
@@ -46,7 +51,9 @@ void forward_dropout_layer(dropout_layer l, network net)
         else net.input[i] *= l.scale;
     }
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void backward_dropout_layer(dropout_layer l, network net)
 {
     int i;
@@ -57,6 +64,56 @@ void backward_dropout_layer(dropout_layer l, network net)
         else net.delta[i] *= l.scale;
     }
 }
+#endif
+
+#if defined(USE_SGX) && defined(USE_SGX_LAYERWISE)
+dropout_layer make_dropout_layer(int batch, int inputs, float probability)
+{
+    dropout_layer l = {};
+    l.type = DROPOUT;
+    l.probability = probability;
+    l.inputs = inputs;
+    l.outputs = inputs;
+    l.batch = batch;
+    //l.rand = (float*)calloc(inputs*batch, sizeof(float));
+    l.rand = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*batch);
+    l.scale = 1./(1.-probability);
+    l.forward = forward_dropout_layer;
+    l.backward = backward_dropout_layer;
+    //fprintf(stderr, "dropout       p = %.2f               %4d  ->  %4d\n", probability, inputs, inputs);
+    return l;
+}
+
+void forward_dropout_layer(dropout_layer l, network net)
+{
+    int i;
+    if (!net.train) return;
+    auto l_rand = l.rand->getItemsInRange(0, l.rand->getBufferSize());
+    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+    for(i = 0; i < l.batch * l.inputs; ++i){
+        float r = rand_uniform(0, 1);
+        l_rand[i] = r;
+        if(r < l.probability) net_input[i] = 0;
+        else net_input[i] *= l.scale;
+    }
+    l.rand->setItemsInRange(0, l.rand->getBufferSize(),l_rand);
+    net.input->setItemsInRange(0, net.input->getBufferSize(),net_input);
+}
+
+void backward_dropout_layer(dropout_layer l, network net)
+{
+    int i;
+    if(!net.delta) return;
+    auto l_rand = l.rand->getItemsInRange(0, l.rand->getBufferSize());
+    auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
+    for(i = 0; i < l.batch * l.inputs; ++i){
+        float r = l_rand[i];
+        if(r < l.probability) net_delta[i] = 0;
+        else net_delta[i] *= l.scale;
+    }
+    net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
+}
+#endif
 
 #if defined(USE_SGX) && defined(USE_SGX_BLOCKING)
 

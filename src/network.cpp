@@ -208,7 +208,15 @@ void forward_network(network *netp)
         layer l = net.layers[i];
         //LOG_DEBUG("processing forward layer %d of %d with %d weights and %d biases\n",i+1,net.n,l.nweights,l.nbiases)
         if(l.delta){
+            #ifndef USE_SGX_LAYERWISE
             fill_cpu(l.outputs * l.batch, 0, l.delta, 1);
+            #else
+            {
+                auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+                fill_cpu(l.outputs * l.batch, 0, &l_delta[0], 1);
+                l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+            }
+            #endif
         }
         l.forward(l, net);
         net.input = l.output;
@@ -266,10 +274,12 @@ void calc_network_cost(network *netp)
     //LOG_DEBUG("Cost is :%f and count:%d\n",*net.cost,count)
 }
 
+#ifndef USE_SGX_LAYERWISE
 int get_predicted_class_network(network *net)
 {
     return max_index(net->output, net->outputs);
 }
+#endif
 
 void backward_network(network *netp)
 {
@@ -309,6 +319,7 @@ float train_network_datum(network *net)
   return error;
 }
 
+#ifndef USE_SGX_LAYERWISE
 float train_network_sgd(network *net, data d, int n)
 {
   int batch = net->batch;
@@ -322,7 +333,9 @@ float train_network_sgd(network *net, data d, int n)
   }
   return (float)sum/(n*batch);
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 float train_network(network *net, data d)
 {
   assert(d.X.rows % net->batch == 0);
@@ -338,6 +351,28 @@ float train_network(network *net, data d)
   }
   return (float)sum/(n*batch);
 }
+#else
+float train_network(network *net, data d)
+{
+  assert(d.X.rows % net->batch == 0);
+  int batch = net->batch;
+  int n = d.X.rows / batch;
+
+  int i;
+  float sum = 0;
+  
+  for(i = 0; i < n; ++i){
+    auto net_input = net->input->getItemsInRange(0, net->input->getBufferSize());
+    auto net_truth = net->truth->getItemsInRange(0, net->truth->getBufferSize());
+    get_next_batch(d, batch, i*batch, &net_input[0], &net_truth[0]);
+    net->input->setItemsInRange(0, net->input->getBufferSize(),net_input);
+    net->truth->setItemsInRange(0, net->truth->getBufferSize(),net_truth);
+    float err = train_network_datum(net);
+    sum += err;
+  }
+  return (float)sum/(n*batch);
+}
+#endif
 
 void set_temp_network(network *net, float t)
 {
@@ -468,6 +503,7 @@ layer get_network_detection_layer(network *net)
     return l;
 }
 
+#ifndef USE_SGX_LAYERWISE
 image get_network_image_layer(network *net, int i)
 {
   layer l = net->layers[i];
@@ -480,7 +516,9 @@ image get_network_image_layer(network *net, int i)
   image def = {0};
   return def;
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 image get_network_image(network *net)
 {
     int i;
@@ -491,6 +529,7 @@ image get_network_image(network *net)
     image def = {0};
     return def;
 }
+#endif
 
 #ifndef USE_SGX
 void visualize_network(network *net)
@@ -509,12 +548,14 @@ void visualize_network(network *net)
 #else
 #endif
 
+#ifndef USE_SGX_LAYERWISE
 void top_predictions(network *net, int k, int *index)
 {
     top_k(net->output, net->outputs, k, index);
 }
+#endif
 
-
+#ifndef USE_SGX_LAYERWISE
 float *network_predict(network *net, float *input)
 {
     network orig = *net;
@@ -527,6 +568,7 @@ float *network_predict(network *net, float *input)
     *net = orig;
     return out;
 }
+#endif
 
 #ifndef USE_SGX
 int num_detections(network *net, float thresh)
@@ -642,6 +684,7 @@ matrix network_predict_data_multi(network *net, data test, int n)
     return pred;
 }
 #else
+#ifndef USE_SGX_LAYERWISE
 matrix network_predict_data(network *net, data test)
 {
     int i,j,b;
@@ -668,6 +711,7 @@ matrix network_predict_data(network *net, data test)
     free(X);
     return pred;
 }
+#endif
 #endif
 
 #ifndef USE_SGX
@@ -718,6 +762,7 @@ void compare_networks(network *n1, network *n2, data test)
 #else
 #endif
 
+#ifndef USE_SGX_LAYERWISE
 float network_accuracy(network *net, data d)
 {
   matrix guess = network_predict_data(net, d);
@@ -735,6 +780,7 @@ float *network_accuracies(network *net, data d, int n)
   free_matrix(guess);
   return acc;
 }
+#endif
 
 layer get_network_output_layer(network *net)
 {
@@ -756,6 +802,7 @@ float network_accuracy_multi(network *net, data d, int n)
 #else
 #endif
 
+#ifndef USE_SGX_LAYERWISE
 void free_network(network *net)
 {
     int i;
@@ -771,6 +818,7 @@ void free_network(network *net)
 #endif
     free(net);
 }
+#endif
 
 // Some day...
 // ^ What the hell is this comment for?
@@ -795,10 +843,12 @@ int network_outputs(network *net)
     return network_output_layer(net).outputs;
 }
 
+#ifndef USE_SGX_LAYERWISE
 float *network_output(network *net)
 {
     return network_output_layer(net).output;
 }
+#endif
 
 #ifdef GPU
 
