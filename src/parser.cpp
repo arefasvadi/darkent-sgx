@@ -570,6 +570,7 @@ dropout_layer parse_dropout(list *options, size_params params)
     return layer;
 }
 
+#ifndef USE_SGX_LAYERWISE
 layer parse_normalization(list *options, size_params params)
 {
     float alpha = option_find_float(options, "alpha", .0001);
@@ -579,6 +580,7 @@ layer parse_normalization(list *options, size_params params)
     layer l = make_normalization_layer(params.batch, params.w, params.h, params.c, size, alpha, beta, kappa);
     return l;
 }
+#endif
 
 layer parse_batchnorm(list *options, size_params params)
 {
@@ -586,6 +588,7 @@ layer parse_batchnorm(list *options, size_params params)
     return l;
 }
 
+#ifndef USE_SGX_LAYERWISE
 layer parse_shortcut(list *options, size_params params, network *net)
 {
     char *l = option_find(options, "from");
@@ -604,7 +607,7 @@ layer parse_shortcut(list *options, size_params params, network *net)
     s.beta = option_find_float_quiet(options, "beta", 1);
     return s;
 }
-
+#endif
 
 /* layer parse_l2norm(list *options, size_params params)
 {
@@ -615,7 +618,7 @@ layer parse_shortcut(list *options, size_params params, network *net)
     return l;
 } */
 
-
+#ifndef USE_SGX_LAYERWISE
 layer parse_logistic(list *options, size_params params)
 {
     layer l = make_logistic_layer(params.batch, params.inputs);
@@ -624,6 +627,7 @@ layer parse_logistic(list *options, size_params params)
     l.c = l.out_c = params.c;
     return l;
 }
+#endif
 
 layer parse_activation(list *options, size_params params)
 {
@@ -859,7 +863,9 @@ network *parse_network_cfg(char *filename)
         else if(lt == ACTIVE){
             l = parse_activation(options, params);
         }else if(lt == LOGXENT){
+            #ifndef USE_SGX
             l = parse_logistic(options, params);
+            #endif
         }
         /* else if(lt == L2NORM){
             l = parse_l2norm(options, params);
@@ -900,7 +906,9 @@ network *parse_network_cfg(char *filename)
             l = parse_softmax(options, params);
             net->hierarchy = l.softmax_tree;
         }else if(lt == NORMALIZATION){
+          #ifndef USE_SGX
             l = parse_normalization(options, params);
+          #endif
         }else if(lt == BATCHNORM){
             l = parse_batchnorm(options, params);
         }else if(lt == MAXPOOL){
@@ -922,7 +930,9 @@ network *parse_network_cfg(char *filename)
             l = parse_upsample(options, params, net);
         } */
         else if(lt == SHORTCUT){
+            #ifndef USE_SGX
             l = parse_shortcut(options, params, net);
+            #endif
         }else if(lt == DROPOUT){
             l = parse_dropout(options, params);
             l.output = net->layers[count-1].output;
@@ -967,8 +977,13 @@ network *parse_network_cfg(char *filename)
     net->truths = out.outputs;
     if(net->layers[net->n-1].truths) net->truths = net->layers[net->n-1].truths;
     net->output = out.output;
+    #ifndef USE_SGX_LAYERWISE
     net->input = (float*)calloc(net->inputs*net->batch, sizeof(float));
     net->truth = (float*)calloc(net->truths*net->batch, sizeof(float));
+    #else
+    net->input = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(net->inputs*net->batch);
+    net->truth = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(net->truths*net->batch);
+    #endif
 #ifdef GPU
     net->output_gpu = out.output_gpu;
     net->input_gpu = cuda_make_array(net->input, net->inputs*net->batch);
@@ -983,7 +998,11 @@ network *parse_network_cfg(char *filename)
             net->workspace = calloc(1, workspace_size);
         }
 #else
+        #ifndef USE_SGX_LAYERWISE
         net->workspace = (float*)calloc(1, workspace_size);
+        #else
+        net->workspace = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(workspace_size);
+        #endif
 #endif
     }
     LOG_TRACE("finished in parse network config\n");

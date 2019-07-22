@@ -2,6 +2,7 @@
 #include "cuda.h"
 #include <stdio.h>
 
+#ifndef USE_SGX_LAYERWISE
 avgpool_layer make_avgpool_layer(int batch, int w, int h, int c)
 {
     #ifndef USE_SGX
@@ -31,6 +32,7 @@ avgpool_layer make_avgpool_layer(int batch, int w, int h, int c)
     #endif
     return l;
 }
+#endif
 
 void resize_avgpool_layer(avgpool_layer *l, int w, int h)
 {
@@ -39,6 +41,7 @@ void resize_avgpool_layer(avgpool_layer *l, int w, int h)
     l->inputs = h*w*l->c;
 }
 
+#ifndef USE_SGX_LAYERWISE
 void forward_avgpool_layer(const avgpool_layer l, network net)
 {
     int b,i,k;
@@ -55,7 +58,9 @@ void forward_avgpool_layer(const avgpool_layer l, network net)
         }
     }
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void backward_avgpool_layer(const avgpool_layer l, network net)
 {
     int b,i,k;
@@ -70,6 +75,70 @@ void backward_avgpool_layer(const avgpool_layer l, network net)
         }
     }
 }
+#endif
+
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+avgpool_layer make_avgpool_layer(int batch, int w, int h, int c)
+{
+    
+    //fprintf(stderr, "avg                     %4d x%4d x%4d   ->  %4d\n",  w, h, c, c);
+    avgpool_layer l = {};
+    l.type = AVGPOOL;
+    l.batch = batch;
+    l.h = h;
+    l.w = w;
+    l.c = c;
+    l.out_w = 1;
+    l.out_h = 1;
+    l.out_c = c;
+    l.outputs = l.out_c;
+    l.inputs = h*w*c;
+    int output_size = l.outputs * batch;
+    //l.output =  (float*)calloc(output_size, sizeof(float));
+    l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(output_size);
+    //l.delta =   (float*)calloc(output_size, sizeof(float));
+    l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(output_size);
+    l.forward = forward_avgpool_layer;
+    l.backward = backward_avgpool_layer;
+    return l;
+}
+
+void forward_avgpool_layer(const avgpool_layer l, network net)
+{
+    int b,i,k;
+    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+    for(b = 0; b < l.batch; ++b){
+        for(k = 0; k < l.c; ++k){
+            int out_index = k + b*l.c;
+            l_output[out_index] = 0;
+            for(i = 0; i < l.h*l.w; ++i){
+                int in_index = i + l.h*l.w*(k + b*l.c);
+                l_output[out_index] += net_input[in_index];
+            }
+            l_output[out_index] /= l.h*l.w;
+        }
+    }
+    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+}
+
+void backward_avgpool_layer(const avgpool_layer l, network net)
+{
+    int b,i,k;
+    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
+    for(b = 0; b < l.batch; ++b){
+        for(k = 0; k < l.c; ++k){
+            int out_index = k + b*l.c;
+            for(i = 0; i < l.h*l.w; ++i){
+                int in_index = i + l.h*l.w*(k + b*l.c);
+                net_delta[in_index] += l_delta[out_index] / (l.h*l.w);
+            }
+        }
+    }
+    net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
+}
+#endif
 
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
 

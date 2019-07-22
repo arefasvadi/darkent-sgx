@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#ifndef USE_SGX_LAYERWISE
 layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activation, int batch_normalize, int adam)
 {
     int i;
@@ -128,7 +128,9 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
     fprintf(stderr, "connected                            %4d  ->  %4d\n", inputs, outputs);
     return l;
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void update_connected_layer(layer l, update_args a)
 {
     float learning_rate = a.learning_rate*l.learning_rate_scale;
@@ -147,7 +149,9 @@ void update_connected_layer(layer l, update_args a)
     axpy_cpu(l.inputs*l.outputs, learning_rate/batch, l.weight_updates, 1, l.weights, 1);
     scal_cpu(l.inputs*l.outputs, momentum, l.weight_updates, 1);
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void forward_connected_layer(layer l, network net)
 {
     fill_cpu(l.outputs*l.batch, 0, l.output, 1);
@@ -165,7 +169,9 @@ void forward_connected_layer(layer l, network net)
     }
     activate_array(l.output, l.outputs*l.batch, l.activation);
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void backward_connected_layer(layer l, network net)
 {
     gradient_array(l.output, l.outputs*l.batch, l.activation, l.delta);
@@ -194,7 +200,8 @@ void backward_connected_layer(layer l, network net)
 
     if(c) gemm(0,0,m,n,k,1,a,k,b,n,1,c,n);
 }
-
+#endif
+#ifndef USE_SGX_LAYERWISE
 void denormalize_connected_layer(layer l)
 {
     int i, j;
@@ -209,6 +216,7 @@ void denormalize_connected_layer(layer l)
         l.rolling_variance[i] = 1;
     }
 }
+#endif
 
 
 void statistics_connected_layer(layer l)
@@ -333,6 +341,254 @@ void backward_connected_layer_gpu(layer l, network net)
     if(c) gemm_gpu(0,0,m,n,k,1,a,k,b,n,1,c,n);
 }
 #endif
+
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activation, int batch_normalize, int adam)
+{
+    int i,j;
+    layer l = {};
+    l.learning_rate_scale = 1;
+    l.type = CONNECTED;
+
+    l.inputs = inputs;
+    l.outputs = outputs;
+    l.batch=batch;
+    l.batch_normalize = batch_normalize;
+    l.h = 1;
+    l.w = 1;
+    l.c = inputs;
+    l.out_h = 1;
+    l.out_w = 1;
+    l.out_c = outputs;
+
+    //l.output = (float*)calloc(batch*outputs, sizeof(float));
+    l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
+    //l.delta = (float*)calloc(batch*outputs, sizeof(float));
+    l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
+
+    //l.weight_updates = (float*)calloc(inputs*outputs, sizeof(float));
+    l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*outputs);
+    //l.bias_updates = (float*)calloc(outputs, sizeof(float));
+    l.bias_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+
+    //l.weights = (float*)calloc(outputs*inputs, sizeof(float));
+    l.weights = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs*inputs);
+    //l.biases = (float*)calloc(outputs, sizeof(float));
+    l.biases = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+
+    l.forward = forward_connected_layer;
+    l.backward = backward_connected_layer;
+    l.update = update_connected_layer;
+
+    //float scale = 1./sqrt(inputs);
+    float scale = sqrt(2./inputs);
+    
+    for(i = 0; i < outputs; ++i){
+        auto l_weights = l.weights->getItemsInRange(i*inputs,(i+1)*inputs);
+        for (j=0;j<inputs;++j) {
+            l_weights[j] = scale*rand_uniform(-1, 1);
+        }
+        l.weights->setItemsInRange(i*inputs,(i+1)*inputs,l_weights);
+    }
+    
+    // already initialized to zero
+    {
+        auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+        for(i = 0; i < outputs; ++i){
+            //l.biases[i] = 0;
+            l_biases[i] = 0;
+        }
+        l.biases->setItemsInRange(0, l.biases->getBufferSize(),l_biases);
+    }
+
+    if(adam){
+        //l.m = (float*)calloc(l.inputs*l.outputs, sizeof(float));
+        l.m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.inputs*l.outputs);
+        //l.v = (float*)calloc(l.inputs*l.outputs, sizeof(float));
+        l.v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.inputs*l.outputs);
+        //l.bias_m = (float*)calloc(l.outputs, sizeof(float));
+        l.bias_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
+        //l.scale_m = (float*)calloc(l.outputs, sizeof(float));
+        l.scale_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
+        //l.bias_v = (float*)calloc(l.outputs, sizeof(float));
+        l.bias_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
+        //l.scale_v = (float*)calloc(l.outputs, sizeof(float));
+        l.scale_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
+    }
+    if(batch_normalize){
+        //l.scales = (float*)calloc(outputs, sizeof(float));
+        l.scales = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+        //l.scale_updates = (float*)calloc(outputs, sizeof(float));
+        l.scale_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+        
+        {
+            auto scs = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+            for(i = 0; i < outputs; ++i){
+                scs[i] = 1;
+            }
+            l.scales->setItemsInRange(0, l.scales->getBufferSize(), scs);
+        }
+
+        //l.mean = (float*)calloc(outputs, sizeof(float));
+        l.mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+        //l.mean_delta = (float*)calloc(outputs, sizeof(float));
+        l.mean_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+        //l.variance = (float*)calloc(outputs, sizeof(float));
+        l.variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+        //l.variance_delta = (float*)calloc(outputs, sizeof(float));
+        l.variance_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+
+        //l.rolling_mean = (float*)calloc(outputs, sizeof(float));
+        l.rolling_mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+        //l.rolling_variance = (float*)calloc(outputs, sizeof(float));
+        l.rolling_variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+
+        //l.x = (float*)calloc(batch*outputs, sizeof(float));
+        l.x = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
+        //l.x_norm = (float*)calloc(batch*outputs, sizeof(float));
+        l.x_norm = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
+    }
+    l.activation = activation;
+    //fprintf(stderr, "connected                            %4d  ->  %4d\n", inputs, outputs);
+    return l;
+}
+
+void update_connected_layer(layer l, update_args a)
+{
+    float learning_rate = a.learning_rate*l.learning_rate_scale;
+    float momentum = a.momentum;
+    float decay = a.decay;
+    int batch = a.batch;
+    {
+        auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+        auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+        axpy_cpu(l.outputs, learning_rate/batch, &l_bias_updates[0], 1, &l_biases[0], 1);
+        scal_cpu(l.outputs, momentum, &l_bias_updates[0], 1);
+        l.biases->setItemsInRange(0, l.biases->getBufferSize(),l_biases);
+        l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(),l_bias_updates);
+    }
+
+    if(l.batch_normalize){
+        auto l_scale_updates = l.scale_updates->getItemsInRange(0, l.scale_updates->getBufferSize());
+        auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+        axpy_cpu(l.outputs, learning_rate/batch, &l_scale_updates[0], 1, &l_scales[0], 1);
+        scal_cpu(l.outputs, momentum, &l_scale_updates[0], 1);
+        l.scale_updates->setItemsInRange(0, l.scale_updates->getBufferSize(),l_scale_updates);
+        l.scales->setItemsInRange(0, l.scales->getBufferSize(),l_scales);
+    }
+
+    {
+        for (int i=0;i<l.outputs;++i) {
+            auto l_weights = l.weights->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
+            auto l_weight_updates = l.weight_updates->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
+            axpy_cpu(l.inputs, -decay*batch, &l_weights[0], 1, &l_weight_updates[0], 1);
+            axpy_cpu(l.inputs, learning_rate/batch, &l_weight_updates[0], 1, &l_weights[0], 1);
+            scal_cpu(l.inputs, momentum, &l_weight_updates[0], 1);
+            l.weights->setItemsInRange(i*l.inputs, (i+1)*l.inputs,l_weights);
+            l.weight_updates->setItemsInRange(i*l.inputs, (i+1)*l.inputs,l_weight_updates);
+        }
+        //axpy_cpu(l.inputs*l.outputs, -decay*batch, l.weights, 1, l.weight_updates, 1);
+        //axpy_cpu(l.inputs*l.outputs, learning_rate/batch, l.weight_updates, 1, l.weights, 1);
+        //scal_cpu(l.inputs*l.outputs, momentum, l.weight_updates, 1);
+    }
+}
+
+void forward_connected_layer(layer l, network net)
+{
+    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    fill_cpu(l.outputs*l.batch, 0, &l_output[0], 1);
+    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+    int m = l.batch;
+    int k = l.inputs;
+    int n = l.outputs;
+    
+    {
+        float *a = &net_input[0];
+        for (int i=0;i<l.outputs;++i) {
+            std::vector<float> temp_out;
+            for (int j=0;j<l.batch;++j) {
+                temp_out.push_back(l_output[j*l.outputs + i]);
+            }
+            float *c = &temp_out[0];
+            auto l_weights = l.weights->getItemsInRange(i*l.inputs,(i+1)*l.inputs); 
+            float *b = &l_weights[0];        
+            gemm(0,1,m,1,k,1,a,k,b,k,1,c,1);
+            for (int j=0;j<l.batch;++j) {
+                l_output[j*l.outputs + i] = temp_out[j];
+            }
+            //l.weights->setItemsInRange(i*l.inputs,(i+1)*l.inputs,l_weights);
+        }
+        //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+    }
+    
+    if(l.batch_normalize){
+        l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+        forward_batchnorm_layer(l, net);
+        l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    } else {
+        auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize()); 
+        add_bias(&l_output[0], &l_biases[0], l.batch, l.outputs, 1);
+    }
+    activate_array(&l_output[0], l.outputs*l.batch, l.activation);
+    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+}
+
+void backward_connected_layer(layer l, network net)
+{
+    
+    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    {
+        auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+        gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+    }
+
+    if(l.batch_normalize){
+        l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+        backward_batchnorm_layer(l, net);
+        l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    } else {
+        auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+        backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.outputs, 1);
+        l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    }
+
+    int m = l.outputs;
+    int k = l.batch;
+    int n = l.inputs;
+    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+    float *b = &net_input[0];
+    for (int i=0;i<m;++i) {
+        float *a = &l_delta[0]+i;
+        auto l_weight_updates = l.weight_updates->getItemsInRange(i*n, (i+1)*n);
+        float *c = &l_weight_updates[0];
+        gemm(1,0,1,n,k,1,a,1,b,n,1,c,n);
+        l.weight_updates->setItemsInRange(i*n, (i+1)*n,l_weight_updates);
+    }
+    //gemm(1,0,m,n,k,1,a,m,b,n,1,c,n);
+
+    m = l.batch;
+    k = l.outputs;
+    n = l.inputs;
+
+    if(net.delta) {
+        auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
+        for (int i=0;i<l.outputs;++i) {
+            std::vector<float> temp_delta;
+            for (int j=0;j<l.batch;++j) {
+                temp_delta.push_back(l_delta[j*l.outputs+i]);
+            }
+            float *a = &temp_delta[0];
+            auto l_weights = l.weights->getItemsInRange(i*(l.inputs), (i+1)*l.inputs);
+            b = &l_weights[0];
+            float* c = &net_delta[0];
+            gemm(0,0,m,n,1,1,a,1,b,n,1,c,n);
+        }
+        //gemm(0,0,m,n,k,1,a,k,b,n,1,c,n);
+        net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
+    }
+}
+#endif
+
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
 layer_blocked make_connected_layer_blocked(int batch, int inputs, int outputs, ACTIVATION activation, int batch_normalize, int adam) {
     int i;

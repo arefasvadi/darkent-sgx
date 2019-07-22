@@ -3,6 +3,7 @@
 #include "blas.h"
 #include <stdio.h>
 
+#ifndef USE_SGX_LAYERWISE
 layer make_batchnorm_layer(int batch, int w, int h, int c)
 {
 #ifndef USE_SGX
@@ -71,6 +72,7 @@ layer make_batchnorm_layer(int batch, int w, int h, int c)
 #endif
     return l;
 }
+#endif
 
 void backward_scale_cpu(float *x_norm, float *delta, int batch, int n, int size, float *scale_updates)
 {
@@ -138,6 +140,7 @@ void resize_batchnorm_layer(layer *layer, int w, int h)
 #else
 #endif
 
+#ifndef USE_SGX_LAYERWISE
 void forward_batchnorm_layer(layer l, network net)
 {
     if(l.type == BATCHNORM) copy_cpu(l.outputs*l.batch, net.input, 1, l.output, 1);
@@ -159,7 +162,9 @@ void forward_batchnorm_layer(layer l, network net)
     scale_bias(l.output, l.scales, l.batch, l.out_c, l.out_h*l.out_w);
     add_bias(l.output, l.biases, l.batch, l.out_c, l.out_h*l.out_w);
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void backward_batchnorm_layer(layer l, network net)
 {
     if(!net.train){
@@ -176,7 +181,155 @@ void backward_batchnorm_layer(layer l, network net)
     normalize_delta_cpu(l.x, l.mean, l.variance, l.mean_delta, l.variance_delta, l.batch, l.out_c, l.out_w*l.out_h, l.delta);
     if(l.type == BATCHNORM) copy_cpu(l.outputs*l.batch, l.delta, 1, net.delta, 1);
 }
+#endif
 
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+layer make_batchnorm_layer(int batch, int w, int h, int c)
+{
+#ifndef USE_SGX
+  fprintf(stderr, "Batch Normalization Layer: %d x %d x %d image\n", w,h,c);
+#else
+#endif
+    layer l = {};
+    l.type = BATCHNORM;
+    l.batch = batch;
+    l.h = l.out_h = h;
+    l.w = l.out_w = w;
+    l.c = l.out_c = c;
+    //l.output = (float*)calloc(h * w * c * batch, sizeof(float));
+    l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(h * w * c * batch);
+    //l.delta  = (float*)calloc(h * w * c * batch, sizeof(float));
+    l.delta  = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(h * w * c * batch);
+    l.inputs = w*h*c;
+    l.outputs = l.inputs;
+
+    //l.scales = (float*)calloc(c, sizeof(float));
+    l.scales = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c);
+    //l.scale_updates = (float*)calloc(c, sizeof(float));
+    l.scale_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c);
+    //l.biases = (float*)calloc(c, sizeof(float));
+    l.biases = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c);
+    //l.bias_updates = (float*)calloc(c, sizeof(float));
+    l.bias_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c);
+    int i;
+    {
+        auto vec_sclaes = l.scales->getItemsInRange(0, c);
+        for(i = 0; i < c; ++i){
+            //l.scales[i] = 1;
+            vec_sclaes[i] = 1;
+        }
+        l.scales->setItemsInRange(0, c, vec_sclaes);
+    }
+    
+    //vec_sclaes.clear();
+
+    //l.mean = (float*)calloc(c, sizeof(float));
+    l.mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c);
+    //l.variance = (float*)calloc(c, sizeof(float));
+    l.variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c);
+
+    //l.rolling_mean = (float*)calloc(c, sizeof(float));
+    l.rolling_mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c);
+    //l.rolling_variance = (float*)calloc(c, sizeof(float));
+    l.rolling_variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c);
+
+    l.forward = forward_batchnorm_layer;
+    l.backward = backward_batchnorm_layer;
+    return l;
+}
+
+void forward_batchnorm_layer(layer l, network net)
+{
+    auto l_out = l.output->getItemsInRange(0, l.output->getBufferSize());
+    auto l_rolling_mean = l.rolling_mean->getItemsInRange(0,l.rolling_mean->getBufferSize());
+    auto l_rolling_variance = l.rolling_variance->getItemsInRange(0,l.rolling_variance->getBufferSize());
+    if(l.type == BATCHNORM) {
+        auto net_inp = net.input->getItemsInRange(0, net.input->getBufferSize());
+        copy_cpu(l.outputs*l.batch, &net_inp[0], 1, &l_out[0], 1);
+    }
+    {
+        auto l_x = l.x->getItemsInRange(0, l.x->getBufferSize());
+        copy_cpu(l.outputs*l.batch, &l_out[0], 1, &l_x[0], 1);
+        l.x->setItemsInRange(0,l.x->getBufferSize() , l_x);
+    }
+    if(net.train){
+        auto l_mean = l.mean->getItemsInRange(0,l.mean->getBufferSize());
+        auto l_variance = l.variance->getItemsInRange(0,l.variance->getBufferSize());
+        auto l_xnorm = l.x_norm->getItemsInRange(0, l.x_norm->getBufferSize());
+        mean_cpu(&l_out[0], l.batch, l.out_c, l.out_h*l.out_w, &l_mean[0]);
+        variance_cpu(&l_out[0], &l_mean[0], l.batch, l.out_c, l.out_h*l.out_w, &l_variance[0]);
+
+        scal_cpu(l.out_c, .99, &l_rolling_mean[0], 1);
+        axpy_cpu(l.out_c, .01, &l_mean[0], 1, &l_rolling_mean[0], 1);
+        scal_cpu(l.out_c, .99, &l_rolling_variance[0], 1);
+        axpy_cpu(l.out_c, .01, &l_variance[0], 1, &l_rolling_variance[0], 1);
+
+        normalize_cpu(&l_out[0], &l_mean[0], &l_variance[0], l.batch, l.out_c, l.out_h*l.out_w);   
+        copy_cpu(l.outputs*l.batch, &l_out[0], 1, &l_xnorm[0], 1);
+        l.mean->setItemsInRange(0, l.mean->getBufferSize(), l_mean);
+        l.variance->setItemsInRange(0, l.variance->getBufferSize(), l_variance);
+        l.x_norm->setItemsInRange(0, l.x_norm->getBufferSize(), l_xnorm);
+        l.rolling_mean->setItemsInRange(0, l.rolling_mean->getBufferSize(), l_rolling_mean);
+        l.rolling_variance->setItemsInRange(0, l.rolling_variance->getBufferSize(), l_rolling_variance);
+    } else {
+        normalize_cpu(&l_out[0], &l_rolling_mean[0], &l_rolling_variance[0], l.batch, l.out_c, l.out_h*l.out_w);
+    }
+    auto l_scales = l.scales->getItemsInRange(0,l.scales->getBufferSize());
+    auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize());
+    scale_bias(&l_out[0], &l_scales[0], l.batch, l.out_c, l.out_h*l.out_w);
+    add_bias(&l_out[0], &l_biases[0], l.batch, l.out_c, l.out_h*l.out_w);
+    l.output->setItemsInRange(0, l.output->getBufferSize(), l_out);
+}
+
+void backward_batchnorm_layer(layer l, network net)
+{
+    if(!net.train){
+        l.mean = l.rolling_mean;
+        l.variance = l.rolling_variance;
+    }
+
+    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+
+   { 
+        auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.biases->getBufferSize());
+        backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.out_c, l.out_w*l.out_h);
+        l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    }
+    {
+        auto l_x_norm = l.x_norm->getItemsInRange(0, l.x_norm->getBufferSize());
+        auto l_scale_updates = l.scale_updates->getItemsInRange(0, l.scale_updates->getBufferSize());
+        backward_scale_cpu(&l_x_norm[0], &l_delta[0], l.batch, l.out_c, l.out_w*l.out_h, &l_scale_updates[0]);
+        l.scale_updates->setItemsInRange(0, l.scale_updates->getBufferSize(), l_scale_updates);
+    }
+
+    {
+        auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+        scale_bias(&l_delta[0], &l_scales[0], l.batch, l.out_c, l.out_h*l.out_w);
+    }
+
+    {
+        auto l_mean_delta = l.mean_delta->getItemsInRange(0, l.mean_delta->getBufferSize());
+        auto l_variance = l.variance->getItemsInRange(0, l.variance->getBufferSize());
+        mean_delta_cpu(&l_delta[0], &l_variance[0], l.batch, l.out_c, l.out_w*l.out_h, &l_mean_delta[0]);
+
+        auto l_x = l.x->getItemsInRange(0, l.x->getBufferSize());
+        auto l_mean = l.mean->getItemsInRange(0, l.mean->getBufferSize());
+        auto l_variance_delta = l.variance_delta->getItemsInRange(0, l.variance_delta->getBufferSize());
+        variance_delta_cpu(&l_x[0], &l_delta[0], &l_mean[0], &l_variance[0], l.batch, l.out_c, l.out_w*l.out_h, &l_variance_delta[0]);
+        normalize_delta_cpu(&l_x[0], &l_mean[0], &l_variance[0], &l_mean_delta[0], &l_variance_delta[0], l.batch, l.out_c, l.out_w*l.out_h, &l_delta[0]);
+
+        l.mean_delta->setItemsInRange(0, l.mean_delta->getBufferSize(), l_mean_delta);
+        l.variance_delta->setItemsInRange(0, l.variance_delta->getBufferSize(), l_variance_delta);
+
+    }
+    if(l.type == BATCHNORM) {
+        auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
+        copy_cpu(l.outputs*l.batch, &l_delta[0], 1, &net_delta[0], 1);
+        net.delta->setItemsInRange(0, net.delta->getBufferSize(), net_delta);
+    }
+    l.delta->setItemsInRange(0, l.delta->getBufferSize(), l_delta);
+}
+#endif
 #ifdef GPU
 
 void pull_batchnorm_layer(layer l)

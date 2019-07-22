@@ -10,6 +10,14 @@ void free_layer_blocked(layer_blocked) {
 }
 #endif
 
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+void free_layer(layer l) {
+    LOG_ERROR("This function yet implemented\n");
+    abort();
+}
+#endif
+
+#ifndef USE_SGX_LAYERWISE
 void free_layer(layer l)
 {
     if(l.type == DROPOUT){
@@ -102,3 +110,4 @@ void free_layer(layer l)
     if(l.norms_gpu)               cuda_free(l.norms_gpu);
 #endif
 }
+#endif
