@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"
 COST_TYPE get_cost_type(char *s)
 {
     if (strcmp(s, "seg")==0) return SEG;
@@ -295,3 +297,4 @@ void backward_cost_layer_blocked(const cost_layer_blocked l, network_blocked net
 }
 #endif
 
+#pragma GCC diagnostic pop

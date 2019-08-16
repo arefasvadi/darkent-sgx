@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 
+#ifndef USE_SGX_LAYERWISE
 route_layer make_route_layer(int batch, int n, int *input_layers, int *input_sizes)
 {
     fprintf(stderr,"route ");
@@ -36,7 +37,9 @@ route_layer make_route_layer(int batch, int n, int *input_layers, int *input_siz
     #endif
     return l;
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void resize_route_layer(route_layer *l, network *net)
 {
     int i;
@@ -70,7 +73,9 @@ void resize_route_layer(route_layer *l, network *net)
 #endif
     
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void forward_route_layer(const route_layer l, network net)
 {
     int i, j;
@@ -85,7 +90,9 @@ void forward_route_layer(const route_layer l, network net)
         offset += input_size;
     }
 }
+#endif
 
+#ifndef USE_SGX_LAYERWISE
 void backward_route_layer(const route_layer l, network net)
 {
     int i, j;
@@ -100,6 +107,7 @@ void backward_route_layer(const route_layer l, network net)
         offset += input_size;
     }
 }
+#endif
 
 #ifdef GPU
 void forward_route_layer_gpu(const route_layer l, network net)
@@ -129,6 +137,71 @@ void backward_route_layer_gpu(const route_layer l, network net)
             axpy_gpu(input_size, 1, l.delta_gpu + offset + j*l.outputs, 1, delta + j*input_size, 1);
         }
         offset += input_size;
+    }
+}
+#endif
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+route_layer make_route_layer(int batch, int n, int *input_layers, int *input_sizes)
+{
+    fprintf(stderr,"route ");
+    route_layer l = {};
+    l.type = ROUTE;
+    l.batch = batch;
+    l.n = n;
+    l.input_layers = input_layers;
+    l.input_sizes = input_sizes;
+    int i;
+    int outputs = 0;
+    for(i = 0; i < n; ++i){
+        fprintf(stderr," %d", input_layers[i]);
+        outputs += input_sizes[i];
+    }
+    fprintf(stderr, "\n");
+    l.outputs = outputs;
+    l.inputs = outputs;
+    //l.delta =  (float*)calloc(outputs*batch, sizeof(float));
+    l.delta =  sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs*batch);
+    //l.output = (float*)calloc(outputs*batch, sizeof(float));;
+    l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs*batch);
+
+    l.forward = forward_route_layer;
+    l.backward = backward_route_layer;
+    return l;
+}
+
+void forward_route_layer(const route_layer l, network net)
+{
+    int i, j;
+    int offset = 0;
+    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    for(i = 0; i < l.n; ++i){
+        int index = l.input_layers[i];
+        //float *input = net.layers[index].output;
+        auto input = net.layers[index].output->getItemsInRange(0,net.layers[index].output->getBufferSize());
+        int input_size = l.input_sizes[i];
+        for(j = 0; j < l.batch; ++j){
+            copy_cpu(input_size, &input[0] + j*input_size, 1, &l_output[0] + offset + j*l.outputs, 1);
+        }
+        offset += input_size;
+    }
+    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+}
+
+void backward_route_layer(const route_layer l, network net)
+{
+    int i, j;
+    int offset = 0;
+    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    for(i = 0; i < l.n; ++i){
+        int index = l.input_layers[i];
+        //float *delta = net.layers[index].delta;
+        auto delta = net.layers[index].delta->getItemsInRange(0, net.layers[index].delta->getBufferSize());
+        int input_size = l.input_sizes[i];
+        for(j = 0; j < l.batch; ++j){
+            axpy_cpu(input_size, 1, &l_delta[0] + offset + j*l.outputs, 1, &delta[0] + j*input_size, 1);
+        }
+        offset += input_size;
+        net.layers[index].delta->setItemsInRange(0, net.layers[index].delta->getBufferSize(),delta);
     }
 }
 #endif

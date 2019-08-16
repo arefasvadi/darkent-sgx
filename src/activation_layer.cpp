@@ -32,7 +32,7 @@ layer make_activation_layer(int batch, int inputs, ACTIVATION activation)
     l.delta_gpu = cuda_make_array(l.delta, inputs*batch);
 #endif
     l.activation = activation;
-    fprintf(stderr, "Activation Layer: %d inputs\n", inputs);
+    fprintf(stderr, "Activation Layer: %s %d inputs\n", get_activation_string(activation),inputs);
     return l;
 }
 
@@ -82,7 +82,7 @@ layer make_activation_layer(int batch, int inputs, ACTIVATION activation)
     l.forward = forward_activation_layer;
     l.backward = backward_activation_layer;
     l.activation = activation;
-    //fprintf(stderr, "Activation Layer: %d inputs\n", inputs);
+    //fprintf(stderr, "Activation Layer: %s %d inputs\n", get_activation_string(activation),inputs);
     return l;
 }
 
@@ -126,7 +126,7 @@ layer_blocked make_activation_layer_blocked(int batch, int inputs, ACTIVATION ac
     l.backward_blocked = backward_activation_layer_blocked;
 
     l.activation = activation;
-    // fprintf(stderr, "Activation Layer: %d inputs\n", inputs);
+    // ffprintf(stderr, "Activation Layer: %s %d inputs\n", get_activation_string(activation),inputs);
     return l;
 }
 

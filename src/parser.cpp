@@ -8,11 +8,14 @@
 #include "l2norm_layer.h"
 #include "activations.h"
 #include "avgpool_layer.h"
+#include "avgpoolx_layer.h"
+#include "avgpoolx1D_layer.h"
 #include "batchnorm_layer.h"
 #include "blas.h"
 #include "connected_layer.h"
 #include "deconvolutional_layer.h"
 #include "convolutional_layer.h"
+#include "convolutional1D_layer.h"
 #include "cost_layer.h"
 #include "crnn_layer.h"
 #include "crop_layer.h"
@@ -22,6 +25,7 @@
 #include "list.h"
 #include "local_layer.h"
 #include "maxpool_layer.h"
+#include "maxpool1D_layer.h"
 #include "normalization_layer.h"
 #include "option_list.h"
 #include "parser.h"
@@ -37,6 +41,8 @@
 #include "lstm_layer.h"
 #include "utils.h"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"
 typedef struct{
     char *type;
     list *options;
@@ -57,6 +63,8 @@ LAYER_TYPE string_to_layer_type(char * type)
     if (strcmp(type, "[local]")==0) return LOCAL;
     if (strcmp(type, "[conv]")==0
             || strcmp(type, "[convolutional]")==0) return CONVOLUTIONAL;
+    if (strcmp(type, "[conv1D]")==0
+            || strcmp(type, "[convolutional1D]")==0) return CONVOLUTIONAL1D;
     if (strcmp(type, "[deconv]")==0
             || strcmp(type, "[deconvolutional]")==0) return DECONVOLUTIONAL;
     if (strcmp(type, "[activation]")==0) return ACTIVE;
@@ -72,9 +80,15 @@ LAYER_TYPE string_to_layer_type(char * type)
             || strcmp(type, "[connected]")==0) return CONNECTED;
     if (strcmp(type, "[max]")==0
             || strcmp(type, "[maxpool]")==0) return MAXPOOL;
+    if (strcmp(type, "[max1D]")==0
+            || strcmp(type, "[maxpool1D]")==0) return MAXPOOL1D;
     if (strcmp(type, "[reorg]")==0) return REORG;
     if (strcmp(type, "[avg]")==0
             || strcmp(type, "[avgpool]")==0) return AVGPOOL;
+    if (strcmp(type, "[avgx]")==0
+            || strcmp(type, "[avgpoolx]")==0) return AVGPOOLX;
+    if (strcmp(type, "[avgx1D]")==0
+            || strcmp(type, "[avgpoolx1D]")==0) return AVGPOOLX1D;
     if (strcmp(type, "[dropout]")==0) return DROPOUT;
     if (strcmp(type, "[lrn]")==0
             || strcmp(type, "[normalization]")==0) return NORMALIZATION;
@@ -227,6 +241,36 @@ convolutional_layer parse_convolutional(list *options, size_params params)
     int xnor = option_find_int_quiet(options, "xnor", 0);
 
     convolutional_layer layer = make_convolutional_layer(batch,h,w,c,n,groups,size,stride,padding,activation, batch_normalize, binary, xnor, params.net->adam);
+    layer.flipped = option_find_int_quiet(options, "flipped", 0);
+    layer.dot = option_find_float_quiet(options, "dot", 0);
+
+    return layer;
+}
+
+convolutional1D_layer parse_convolutional1D(list *options, size_params params)
+{
+    int n = option_find_int(options, "filters",1);
+    int size = option_find_int(options, "size",1);
+    int stride = option_find_int(options, "stride",1);
+    int pad = option_find_int_quiet(options, "pad",0);
+    int padding = option_find_int_quiet(options, "padding",0);
+    int groups = option_find_int_quiet(options, "groups", 1);
+    if(pad) padding = size/2;
+
+    char *activation_s = option_find_str(options, "activation", "logistic");
+    ACTIVATION activation = get_activation(activation_s);
+
+    int batch,h,w,c;
+    h = params.h;
+    w = params.w;
+    c = params.c;
+    batch=params.batch;
+    if(!(h == 1 && w && c)) error("Layer before convolutional1D layer must output image with height 1.");
+    int batch_normalize = option_find_int_quiet(options, "batch_normalize", 0);
+    int binary = option_find_int_quiet(options, "binary", 0);
+    int xnor = option_find_int_quiet(options, "xnor", 0);
+
+    convolutional1D_layer layer = make_convolutional1D_layer(batch,h,w,c,n,groups,size,stride,padding,activation, batch_normalize, binary, xnor, params.net->adam);
     layer.flipped = option_find_int_quiet(options, "flipped", 0);
     layer.dot = option_find_float_quiet(options, "dot", 0);
 
@@ -544,6 +588,23 @@ maxpool_layer parse_maxpool(list *options, size_params params)
     return layer;
 }
 
+maxpool_layer parse_maxpool1D(list *options, size_params params)
+{
+    int stride = option_find_int(options, "stride",1);
+    int size = option_find_int(options, "size",stride);
+    int padding = option_find_int_quiet(options, "padding", size-1);
+
+    int batch,h,w,c;
+    h = params.h;
+    w = params.w;
+    c = params.c;
+    batch=params.batch;
+    if(!(h == 1 && w && c)) error("Layer before maxpool1D layer must output image with height 1.");
+
+    maxpool1D_layer layer = make_maxpool1D_layer(batch,h,w,c,size,stride,padding);
+    return layer;
+}
+
 avgpool_layer parse_avgpool(list *options, size_params params)
 {
     int batch,w,h,c;
@@ -557,6 +618,40 @@ avgpool_layer parse_avgpool(list *options, size_params params)
     }
 
     avgpool_layer layer = make_avgpool_layer(batch,w,h,c);
+    return layer;
+}
+
+avgpoolx_layer parse_avgpoolx(list *options, size_params params)
+{
+    int stride = option_find_int(options, "stride",1);
+    int size = option_find_int(options, "size",stride);
+    int padding = option_find_int_quiet(options, "padding", size-1);
+    
+    int batch,w,h,c;
+    w = params.w;
+    h = params.h;
+    c = params.c;
+    batch=params.batch;
+    if(!(h && w && c)) error("Layer before avgpoolx layer must output image.");
+
+    avgpoolx_layer layer = make_avgpoolx_layer(batch,h,w,c,size,stride,padding);
+    return layer;
+}
+
+avgpoolx_layer parse_avgpoolx1D(list *options, size_params params)
+{
+    int stride = option_find_int(options, "stride",1);
+    int size = option_find_int(options, "size",stride);
+    int padding = option_find_int_quiet(options, "padding", size-1);
+    
+    int batch,w,h,c;
+    w = params.w;
+    h = params.h;
+    c = params.c;
+    batch=params.batch;
+    if(!(h == 1 && w && c)) error("Layer before avgpoolx1D layer must output image.");
+
+    avgpoolx1D_layer layer = make_avgpoolx1D_layer(batch,h,w,c,size,stride,padding);
     return layer;
 }
 
@@ -588,7 +683,6 @@ layer parse_batchnorm(list *options, size_params params)
     return l;
 }
 
-#ifndef USE_SGX_LAYERWISE
 layer parse_shortcut(list *options, size_params params, network *net)
 {
     char *l = option_find(options, "from");
@@ -607,7 +701,6 @@ layer parse_shortcut(list *options, size_params params, network *net)
     s.beta = option_find_float_quiet(options, "beta", 1);
     return s;
 }
-#endif
 
 /* layer parse_l2norm(list *options, size_params params)
 {
@@ -652,7 +745,7 @@ layer parse_activation(list *options, size_params params)
     return l;
 } */
 
-/* route_layer parse_route(list *options, size_params params, network *net)
+route_layer parse_route(list *options, size_params params, network *net)
 {
     char *l = option_find(options, "layers");
     int len = strlen(l);
@@ -691,7 +784,7 @@ layer parse_activation(list *options, size_params params)
     }
 
     return layer;
-} */
+}
 
 learning_rate_policy get_policy(char *s)
 {
@@ -853,6 +946,8 @@ network *parse_network_cfg(char *filename)
         LAYER_TYPE lt = string_to_layer_type(s->type);
         if(lt == CONVOLUTIONAL){
             l = parse_convolutional(options, params);
+        } else if(lt == CONVOLUTIONAL1D){
+            l = parse_convolutional1D(options, params);
         }
         /* else if(lt == DECONVOLUTIONAL){
             l = parse_deconvolutional(options, params);
@@ -913,6 +1008,8 @@ network *parse_network_cfg(char *filename)
             l = parse_batchnorm(options, params);
         }else if(lt == MAXPOOL){
             l = parse_maxpool(options, params);
+        }else if(lt == MAXPOOL1D){
+            l = parse_maxpool1D(options, params);
         }
         #ifndef USE_SGX
         else if(lt == REORG){
@@ -922,17 +1019,21 @@ network *parse_network_cfg(char *filename)
         #endif
         else if(lt == AVGPOOL){
             l = parse_avgpool(options, params);
+        }else if(lt == AVGPOOLX){
+            l = parse_avgpoolx(options, params);
+        }else if(lt == AVGPOOLX1D){
+            l = parse_avgpoolx1D(options, params);
         }
-        /* else if(lt == ROUTE){
+        else if(lt == ROUTE){
             l = parse_route(options, params, net);
-        } */
+        }
         /* else if(lt == UPSAMPLE){
             l = parse_upsample(options, params, net);
         } */
         else if(lt == SHORTCUT){
-            #ifndef USE_SGX
+            //#ifndef USE_SGX
             l = parse_shortcut(options, params, net);
-            #endif
+            //#endif
         }else if(lt == DROPOUT){
             l = parse_dropout(options, params);
             l.output = net->layers[count-1].output;
@@ -1001,7 +1102,7 @@ network *parse_network_cfg(char *filename)
         #ifndef USE_SGX_LAYERWISE
         net->workspace = (float*)calloc(1, workspace_size);
         #else
-        net->workspace = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(workspace_size);
+        net->workspace = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(workspace_size/sizeof(float));
         #endif
 #endif
     }
@@ -1209,7 +1310,7 @@ void save_weights_upto(network *net, char *filename, int cutoff) {
     layer l = net->layers[i];
     if (l.dontsave)
       continue;
-    if (l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL) {
+    if (l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL || l.type == CONVOLUTIONAL1D) {
       save_convolutional_weights(l, fp);
     }
     if (l.type == CONNECTED) {
@@ -1357,6 +1458,9 @@ void load_convolutional_weights(layer l, FILE *fp) {
     }
     if(l.numload) l.n = l.numload;
     int num = l.c/l.groups*l.n*l.size*l.size;
+    if (l.type == CONVOLUTIONAL1D) {
+        num = l.c/l.groups*l.n*1*l.size;
+    }
   fread(l.biases, sizeof(float), l.n, fp);
   if (l.batch_normalize && (!l.dontloadscales)) {
     fread(l.scales, sizeof(float), l.n, fp);
@@ -1434,7 +1538,7 @@ void load_weights_upto(network *net, char *filename, int start, int cutoff) {
     layer l = net->layers[i];
     if (l.dontload)
       continue;
-    if (l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL) {
+    if (l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL  || l.type == CONVOLUTIONAL1D) {
       load_convolutional_weights(l, fp);
     }
     if (l.type == CONNECTED) {
@@ -1967,3 +2071,5 @@ network_blocked *parse_network_cfg_blocked(char *filename)
     return net;
 }
 #endif
+
+#pragma GCC diagnostic pop

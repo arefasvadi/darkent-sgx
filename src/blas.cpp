@@ -151,7 +151,8 @@ void normalize_cpu(float *x, float *mean, float *variance, int batch, int filter
         for(f = 0; f < filters; ++f){
             for(i = 0; i < spatial; ++i){
                 int index = b*filters*spatial + f*spatial + i;
-                x[index] = (x[index] - mean[f])/(sqrt(variance[f]) + .000001f);
+                //x[index] = (x[index] - mean[f])/(sqrt(variance[f]) + .000001f);
+                x[index] = (x[index] - mean[f])/(sqrt(variance[f] + .001f));
             }
         }
     }
@@ -472,6 +473,8 @@ void normalize_cpu_blocked(const std::shared_ptr<sgx::trusted::BlockedBuffer<flo
                 BLOCK_ENGINE_COND_CHECK_FOR_LOOP_1D_NEW(x, x_valid_range, x_block_val_ptr, true, x_index_var, index)
                 *(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) = (*(x_block_val_ptr+x_index_var-x_valid_range.block_requested_ind) - *(mean_block_val_ptr+mean_index_var-mean_valid_range.block_requested_ind))/(sqrt(*(variance_block_val_ptr+variance_index_var-variance_valid_range.block_requested_ind)) + .000001f);
                 // x[index] = (x[index] - mean[f])/(sqrt(variance[f]) + .000001f);
+                TODO: implement this version for idash if this blocking scheme is selected!
+                //x[index] = (x[index] - mean[f])/(sqrt(variance[f] + .001f));
             }
         }
     }

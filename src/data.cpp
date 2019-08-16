@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"
+
 #ifndef USE_SGX
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
@@ -445,7 +448,6 @@ void fill_truth_mask(char *path, int num_boxes, float *truth, int classes, int w
     fclose(file);
     free_image(part);
 }
-
 
 void fill_truth_detection(char *path, int num_boxes, float *truth, int classes, int flip, float dx, float dy, float sx, float sy)
 {
@@ -1132,6 +1134,8 @@ void *load_thread(void *ptr)
         *(a.resized) = letterbox_image(*(a.im), a.w, a.h);
     } else if (a.type == TAG_DATA){
         *a.d = load_data_tag(a.paths, a.n, a.m, a.classes, a.min, a.max, a.size, a.angle, a.aspect, a.hue, a.saturation, a.exposure);
+    } else if (a.type == IDASH_DATA){
+        *a.d = load_data_idash(a.paths, a.n);
     }
     free(ptr);
     return 0;
@@ -1365,6 +1369,30 @@ data load_data_tag(char **paths, int n, int m, int k, int min, int max, int size
     d.X = load_image_augment_paths(paths, n, min, max, size, angle, aspect, hue, saturation, exposure, 0);
     d.y = load_tags_paths(paths, n, k);
     if(m) free(paths);
+    return d;
+}
+
+
+data load_data_idash(char **paths, int n)
+{
+    data d = {0};
+    d.shallow = 0;
+    d.w = 12634;
+    d.h = 1;
+    matrix X = make_matrix(n, 12634);
+    matrix y = make_matrix(n, 1);
+    d.X = X;
+    d.y = y;
+
+    //size_t fsize = 0;
+    for (int i=0;i<n;++i) {
+        FILE *fp = fopen(paths[i], "rb");
+        //fseek(fp, 0, SEEK_END);
+        //fsize = ftell(f);
+        //fseek(fp, 0, SEEK_SET);  /* same as rewind(f); */
+        fread(d.X.vals[i], 1, sizeof(float)*d.X.cols, fp);
+        fclose(fp);
+    }
     return d;
 }
 #endif
@@ -1692,3 +1720,4 @@ data *split_data(data d, int part, int total)
     return split;
 }
 
+#pragma GCC diagnostic pop

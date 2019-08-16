@@ -707,7 +707,7 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   /* {
     // just checking
     auto ws = l.weights->getItemsInRange(0, l.weights->getBufferSize());
-    LOG_DEBUG("INIT conv layer ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),ws[237],ws[121])
+    LOG_DEBUG("INIT conv layer ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getmID(),ws[237],ws[121])
   } */
 
   int out_w = convolutional_out_width(l);
@@ -801,7 +801,7 @@ void forward_convolutional_layer(convolutional_layer l, network net)
   int i, j;
   auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
   auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
-  auto n_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
+  //auto n_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
   auto n_input = net.input->getItemsInRange(0, net.input->getBufferSize());
   //LOG_DEBUG("before forward ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),l_weights[237],l_weights[121])
 
@@ -824,17 +824,24 @@ void forward_convolutional_layer(convolutional_layer l, network net)
   for (i = 0; i < l.batch; ++i) {
     for (j = 0; j < l.groups; ++j) {
       float *a = &l_weights[0] + j * l.nweights / l.groups;
-      float *b = &n_workspace[0];
+      float *b = nullptr; //&n_workspace[0];
       float *c = &l_output[0] + (i * l.groups + j) * n * m;
       float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
-
       if (l.size == 1) {
           b = im;
+          gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
       } else {
-          im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
+          auto n_workspace = net.workspace->getItemsInRange(0, 1*l.out_h*l.out_w*l.size*l.size);
+          for (int chan = 0; chan < l.c / l.groups; chan++) {
+            std::memset(&n_workspace[0], 0, sizeof(float)*n_workspace.size());
+            b = &n_workspace[0];
+            //im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
+            im2col_cpu(im+(chan*l.h*l.w), 1, l.h, l.w, l.size, l.stride, l.pad, b);
+            gemm(0, 0, m, n, (l.size*l.size), 1, a+(chan*l.size*l.size), k, b, n, 1, c, n);  // k is changed
+          }
           //LOG_DEBUG("Base start index for C (output) is %d",(i * l.groups + j) * n * m)
+          //gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
       }
-      gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
     }
   }
   //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
@@ -867,7 +874,7 @@ void backward_convolutional_layer(convolutional_layer l, network net)
     auto net_delta  = net.delta ? net.delta->getItemsInRange(0, net.delta->getBufferSize()):std::vector<float>();
   
     auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
-    auto net_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
+    //auto net_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
 
     {
@@ -888,33 +895,47 @@ void backward_convolutional_layer(convolutional_layer l, network net)
     for(i = 0; i < l.batch; ++i){
         for(j = 0; j < l.groups; ++j){
             float *a = &l_delta[0] + (i*l.groups + j)*m*k;
-            float *b = &net_workspace[0];
+            float *b = nullptr;   //&net_workspace[0];
             float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
             float *im  = &net_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
 
             if(l.size == 1){
                 b = im;
+                gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
             } else {
-                im2col_cpu(im, l.c/l.groups, l.h, l.w, 
-                        l.size, l.stride, l.pad, b);
+                auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
+                for (int chan = 0; chan < l.c/l.groups;++chan) {
+                  std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
+                  b = &net_workspace[0];
+                  im2col_cpu(im+chan*(l.h*l.w), 1, l.h, l.w, l.size, l.stride, l.pad, b);
+                  //im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
+                  gemm(0,1,m,(l.size*l.size),k,1,a,k,b,k,1,c+(chan*l.size*l.size),n);
+                  //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+                }
             }
-
-            gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+            //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
 
             if (net.delta != nullptr) {
                 auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
                 a = &l_weights[0] + j*l.nweights/l.groups;
                 b = &l_delta[0] + (i*l.groups + j)*m*k;
                 float *imd = &net_delta[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
-                c = &net_workspace[0];
+                c = nullptr;  // &net_workspace[0];
                 if (l.size == 1) {
                     c = imd;
+                    gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
                 }
-
-                gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
-
-                if (l.size != 1) {
-                    col2im_cpu(&net_workspace[0], l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
+                else {
+                    auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
+                    for (int chan=0;chan < l.c/l.groups;chan++) {
+                        std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
+                        c = &net_workspace[0];
+                        gemm(1,0,l.size*l.size,k,m,1,a+(chan*l.size*l.size),n,b,k,0,c,k);
+                        col2im_cpu(c, 1, l.h, l.w, l.size, l.stride, l.pad, imd+(chan*l.h*l.w));
+                    }
+                    //gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
+                    //col2im_cpu(&net_workspace[0], l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
+                    
                 }
             }
         }

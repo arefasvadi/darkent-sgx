@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"
 char *get_activation_string(ACTIVATION a)
 {
     switch(a){
@@ -41,6 +43,8 @@ char *get_activation_string(ACTIVATION a)
     }
     return "relu";
 }
+#pragma GCC diagnostic pop
+
 
 ACTIVATION get_activation(char *s)
 {

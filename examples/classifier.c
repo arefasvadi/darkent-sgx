@@ -755,6 +755,75 @@ void test_classifier(char *datacfg, char *cfgfile, char *weightfile, int target_
     }
 }
 
+void idash_test_classifier(char *datacfg, char *cfgfile, char *weightfile, int target_layer)
+{
+    int curr = 0;
+    network *net = load_network(cfgfile, weightfile, 0);
+    srand(time(0));
+
+    list *options = read_data_cfg(datacfg);
+
+    char *test_list = option_find_str(options, "test", "data/test.list");
+    int classes = option_find_int(options, "classes", 2);
+
+    list *plist = get_paths(test_list);
+
+    char **paths = (char **)list_to_array(plist);
+    int m = plist->size;
+    free_list(plist);
+
+    clock_t time;
+
+    data val, buffer;
+
+    load_args args = {0};
+    args.w = net->w;
+    args.h = net->h;
+    args.paths = paths;
+    args.classes = classes;
+    args.n = net->batch;
+    args.m = 0;
+    args.labels = 0;
+    args.d = &buffer;
+    args.type = IDASH_DATA;
+
+    pthread_t load_thread = load_data_in_thread(args);
+    for(curr = net->batch; curr < m; curr += net->batch){
+        time=clock();
+
+        pthread_join(load_thread, 0);
+        val = buffer;
+
+        if(curr < m){
+            args.paths = paths + curr;
+            if (curr + net->batch > m) args.n = m - curr;
+            load_thread = load_data_in_thread(args);
+        }
+        fprintf(stderr, "Loaded: %d images in %lf seconds\n", val.X.rows, sec(clock()-time));
+
+        time=clock();
+        matrix pred = network_predict_data(net, val);
+
+        int i, j;
+        if (target_layer >= 0){
+            //layer l = net->layers[target_layer];
+        }
+
+        for(i = 0; i < pred.rows; ++i){
+            printf("%s", paths[curr-net->batch+i]);
+            for(j = 0; j < pred.cols; ++j){
+                printf("\t%f", pred.vals[i][j]);
+            }
+            printf("\n");
+        }
+
+        free_matrix(pred);
+
+        fprintf(stderr, "%lf seconds, %d images, %d total\n", sec(clock()-time), val.X.rows, curr);
+        free_data(val);
+    }
+}
+
 void file_output_classifier(char *datacfg, char *filename, char *weightfile, char *listfile)
 {
     int i,j;
@@ -1086,6 +1155,7 @@ void run_classifier(int argc, char **argv)
     else if(0==strcmp(argv[2], "gun")) gun_classifier(data, cfg, weights, cam_index, filename);
     else if(0==strcmp(argv[2], "threat")) threat_classifier(data, cfg, weights, cam_index, filename);
     else if(0==strcmp(argv[2], "test")) test_classifier(data, cfg, weights, layer);
+    else if(0==strcmp(argv[2], "idash_test")) idash_test_classifier(data, cfg, weights, layer);
     else if(0==strcmp(argv[2], "csv")) csv_classifier(data, cfg, weights);
     else if(0==strcmp(argv[2], "label")) label_classifier(data, cfg, weights);
     else if(0==strcmp(argv[2], "valid")) validate_classifier_single(data, cfg, weights);

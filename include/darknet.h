@@ -91,7 +91,11 @@ typedef enum {
     UPSAMPLE,
     LOGXENT,
     L2NORM,
-    BLANK
+    BLANK,
+    AVGPOOLX,
+    CONVOLUTIONAL1D,
+    MAXPOOL1D,
+    AVGPOOLX1D
 } LAYER_TYPE;
 
 typedef enum{
@@ -548,7 +552,7 @@ typedef struct{
 } data;
 
 typedef enum {
-    CLASSIFICATION_DATA, DETECTION_DATA, CAPTCHA_DATA, REGION_DATA, IMAGE_DATA, COMPARE_DATA, WRITING_DATA, SWAG_DATA, TAG_DATA, OLD_CLASSIFICATION_DATA, STUDY_DATA, DET_DATA, SUPER_DATA, LETTERBOX_DATA, REGRESSION_DATA, SEGMENTATION_DATA, INSTANCE_DATA, ISEG_DATA
+    CLASSIFICATION_DATA, DETECTION_DATA, CAPTCHA_DATA, REGION_DATA, IMAGE_DATA, COMPARE_DATA, WRITING_DATA, SWAG_DATA, TAG_DATA, OLD_CLASSIFICATION_DATA, STUDY_DATA, DET_DATA, SUPER_DATA, LETTERBOX_DATA, REGRESSION_DATA, SEGMENTATION_DATA, INSTANCE_DATA, ISEG_DATA, IDASH_DATA
 } data_type;
 
 typedef struct load_args{
@@ -919,10 +923,10 @@ float rand_uniform(float min, float max);
     std::shared_ptr<sgx::trusted::SpecialBuffer<char>> cweights;
     //int   * indexes;
     std::shared_ptr<sgx::trusted::SpecialBuffer<int>> indexes;
-    //int   * input_layers;
-    std::shared_ptr<sgx::trusted::SpecialBuffer<int>> input_layers;
-    //int   * input_sizes;
-    std::shared_ptr<sgx::trusted::SpecialBuffer<int>> input_sizes;
+    int   * input_layers;
+    //std::shared_ptr<sgx::trusted::SpecialBuffer<int>> input_layers;
+    int   * input_sizes;
+    //std::shared_ptr<sgx::trusted::SpecialBuffer<int>> input_sizes;
     //int   * map;
     std::shared_ptr<sgx::trusted::SpecialBuffer<int>> map;
     // /int   * counts;
@@ -1276,10 +1280,10 @@ struct layer_blocked {
     std::shared_ptr<sgx::trusted::BlockedBuffer<char,1>>  cweights;
     // int   * indexes;
     std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  indexes;
-    // int   * input_layers;
-    std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  input_layers;
-    // int   * input_sizes;
-    std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  input_sizes;
+    int   * input_layers;
+    //std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  input_layers;
+    int   * input_sizes;
+    //std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  input_sizes;
     // int   * map;
     std::shared_ptr<sgx::trusted::BlockedBuffer<int,1>>  map;
     // float * rand;

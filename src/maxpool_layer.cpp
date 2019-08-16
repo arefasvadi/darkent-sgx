@@ -202,11 +202,11 @@ void forward_maxpool_layer(const maxpool_layer l, network net)
                         }
                     }
                     l_output[out_index] = max;
-                    /* if (max_i == -1) {
-                        //auto aaa = 0;
+                    if (max_i == -1) {
+                        auto aaa = 0;
                         LOG_ERROR("in image %d for channel %d there was negative index!\n",b,k)
                         abort();
-                    } */
+                    }
                     l_indexes[out_index] = max_i;
                 }
             }

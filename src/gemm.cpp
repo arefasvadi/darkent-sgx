@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <math.h>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wregister"
 void gemm_bin(int M, int N, int K, float ALPHA, 
         char  *A, int lda, 
         float *B, int ldb,
@@ -154,11 +156,23 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
     int i, j;
     //LOG_DEBUG("TA:%d, TB:%d, M:%d, N:%d, K:%d, lda:%d, ldb:%d, ldc:%d\n",TA,TB,M,N,K,lda,ldb,ldc)
     //LOG_DEBUG("indexes in range [%d,%d] will be used\n",0,N-1+(M-1)*ldc);
-    for(i = 0; i < M; ++i){
-        for(j = 0; j < N; ++j){
-            C[i*ldc + j] *= BETA;
+    if (BETA != 1) {
+        #if defined(USE_SGX) && defined (USE_GEMM_THREADING)
+        sgx_status_t res = ocall_handle_gemm_cpu_first_mult(M, N, BETA,ldc,(size_t) C);
+        CHECK_SGX_SUCCESS(res, "function ocall_handle_gemm_cpu_first_mult caused problem!")
+        #else
+        for(i = 0; i < M; ++i){
+            for(j = 0; j < N; ++j){
+                C[i*ldc + j] *= BETA;
+            }
         }
+        #endif
     }
+    #if defined(USE_SGX) && defined (USE_GEMM_THREADING)
+    sgx_status_t res = ocall_handle_gemm_all(TA, TB, M, N, K, ALPHA, (size_t)A, lda, 
+        (size_t)B, ldb, (size_t)C,ldc);
+    CHECK_SGX_SUCCESS(res, "function ocall_handle_gemm_cpu_all caused problem!")
+    #else
     if(!TA && !TB)
         gemm_nn(M, N, K, ALPHA,A,lda, B, ldb,C,ldc);
     else if(TA && !TB)
@@ -167,6 +181,7 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
         gemm_nt(M, N, K, ALPHA,A,lda, B, ldb,C,ldc);
     else
         gemm_tt(M, N, K, ALPHA,A,lda, B, ldb,C,ldc);
+    #endif
 }
 
 #ifdef GPU
@@ -467,6 +482,7 @@ void gemm_cpu_blocked(int TA, int TB, int M, int N, int K, float ALPHA,
         int i, j;
         //LOG_DEBUG("TA:%d, TB:%d, M:%d, N:%d, K:%d, lda:%d, ldb:%d, ldc:%d\n",TA,TB,M,N,K,lda,ldb,ldc)
         //LOG_DEBUG("C array flattened dim size: %d and indexes in range [%d,%d] will be used\n",C->GetTotalElements(),0,N-1+(M-1)*ldc);
+        if (BETA != 1) {
         BLOCK_ENGINE_INIT_FOR_LOOP(C, c_valid_range, c_block_val_ptr, float)
         for(i = 0; i < M; ++i){
             for(j = 0; j < N; ++j){
@@ -483,6 +499,7 @@ void gemm_cpu_blocked(int TA, int TB, int M, int N, int K, float ALPHA,
         }
         //LOG_DEBUG("finished dim size: %d and idexes in range [%d,%d] will be used\n",C->GetDimSize()[0],C_offset,C_offset+N-1+(M-1)*ldc);
         BLOCK_ENGINE_LAST_UNLOCK(C, c_valid_range)
+        }
 
         if(!TA && !TB)
             gemm_nn_blocked(M, N, K, ALPHA,A,A_offset,lda, B,B_offset, ldb,C,C_offset,ldc);
@@ -503,3 +520,4 @@ void gemm_blocked(int TA, int TB, int M, int N, int K, float ALPHA,
             return gemm_cpu_blocked(TA, TB, M, N, K, ALPHA, A, A_offset, lda, B, B_offset, ldb, BETA, C, C_offset, ldc);
         }
 #endif
+#pragma GCC diagnostic pop
