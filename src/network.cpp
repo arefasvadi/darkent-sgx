@@ -227,7 +227,7 @@ void forward_network(network *netp)
             net.truth = l.output;
         }
     }
-    calc_network_cost(netp);
+    if (net.train) calc_network_cost(netp);
 }
 
 void update_network(network *netp)
@@ -558,7 +558,27 @@ void top_predictions(network *net, int k, int *index)
 }
 #endif
 
-#ifndef USE_SGX_LAYERWISE
+#ifdef USE_SGX_LAYERWISE
+std::vector<float> network_predict(network *net, float *input)
+{
+    network orig = *net;
+    auto net_input = net->input->getItemsInRange(0, net->input->getBufferSize());
+    for (int i=0;i<net_input.size();++i) {
+        net_input[i] = input[i];
+    }
+    net->input->setItemsInRange(0, net->input->getBufferSize(),net_input);
+    //net->input = input;
+    net->truth = 0;
+    net->train = 0;
+    net->delta = 0;
+    forward_network(net);
+    auto net_output = net->layers[net->n-1].output->getItemsInRange(0, net->output->getBufferSize());
+
+    //float *out = net->output;
+    *net = orig;
+    return net_output;
+}
+#else
 float *network_predict(network *net, float *input)
 {
     network orig = *net;
@@ -687,7 +707,34 @@ matrix network_predict_data_multi(network *net, data test, int n)
     return pred;
 }
 #else
-#ifndef USE_SGX_LAYERWISE
+#ifdef USE_SGX_LAYERWISE
+matrix network_predict_data(network *net, data test)
+{
+    int i,j,b;
+    int k = net->outputs;
+    matrix pred = make_matrix(test.X.rows, k);
+    float *X = (float*)calloc(net->batch*test.X.cols, sizeof(float));
+    if (X == nullptr) {
+        LOG_ERROR("Could not allocate memory\n");
+        abort();
+    }
+    for(i = 0; i < test.X.rows; i += net->batch){
+        for(b = 0; b < net->batch; ++b){
+            if(i+b == test.X.rows) break;
+            memcpy(X+b*test.X.cols, test.X.vals[i+b], test.X.cols*sizeof(float));
+        }
+        auto out = network_predict(net, X);
+        for(b = 0; b < net->batch; ++b){
+            if(i+b == test.X.rows) break;
+            for(j = 0; j < k; ++j){
+                pred.vals[i+b][j] = out[j+b*k];
+            }
+        }
+    }
+    free(X);
+    return pred;
+}
+#else
 matrix network_predict_data(network *net, data test)
 {
     int i,j,b;

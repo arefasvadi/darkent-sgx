@@ -28,12 +28,13 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
     l.out_h = 1;
     l.out_w = 1;
     l.out_c = outputs;
+    l.nweights = outputs*inputs;
 
     l.output = (float*)calloc(batch*outputs, sizeof(float));
-    l.delta = (float*)calloc(batch*outputs, sizeof(float));
+    if (global_training) l.delta = (float*)calloc(batch*outputs, sizeof(float));
 
-    l.weight_updates = (float*)calloc(inputs*outputs, sizeof(float));
-    l.bias_updates = (float*)calloc(outputs, sizeof(float));
+    if (global_training) l.weight_updates = (float*)calloc(inputs*outputs, sizeof(float));
+    if (global_training) l.bias_updates = (float*)calloc(outputs, sizeof(float));
 
     l.weights = (float*)calloc(outputs*inputs, sizeof(float));
     l.biases = (float*)calloc(outputs, sizeof(float));
@@ -51,32 +52,37 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
     for(i = 0; i < outputs; ++i){
         l.biases[i] = 0;
     }
-
-    if(adam){
-        l.m = (float*)calloc(l.inputs*l.outputs, sizeof(float));
-        l.v = (float*)calloc(l.inputs*l.outputs, sizeof(float));
-        l.bias_m = (float*)calloc(l.outputs, sizeof(float));
-        l.scale_m = (float*)calloc(l.outputs, sizeof(float));
-        l.bias_v = (float*)calloc(l.outputs, sizeof(float));
-        l.scale_v = (float*)calloc(l.outputs, sizeof(float));
+    if (global_training) {
+        if(adam){
+            l.m = (float*)calloc(l.inputs*l.outputs, sizeof(float));
+            l.v = (float*)calloc(l.inputs*l.outputs, sizeof(float));
+            l.bias_m = (float*)calloc(l.outputs, sizeof(float));
+            l.scale_m = (float*)calloc(l.outputs, sizeof(float));
+            l.bias_v = (float*)calloc(l.outputs, sizeof(float));
+            l.scale_v = (float*)calloc(l.outputs, sizeof(float));
+        }
     }
+    
     if(batch_normalize){
         l.scales = (float*)calloc(outputs, sizeof(float));
-        l.scale_updates = (float*)calloc(outputs, sizeof(float));
+        if (global_training) l.scale_updates = (float*)calloc(outputs, sizeof(float));
         for(i = 0; i < outputs; ++i){
             l.scales[i] = 1;
         }
 
-        l.mean = (float*)calloc(outputs, sizeof(float));
-        l.mean_delta = (float*)calloc(outputs, sizeof(float));
-        l.variance = (float*)calloc(outputs, sizeof(float));
-        l.variance_delta = (float*)calloc(outputs, sizeof(float));
+        if (global_training) {
+            l.mean = (float*)calloc(outputs, sizeof(float));
+            l.mean_delta = (float*)calloc(outputs, sizeof(float));
+            l.variance = (float*)calloc(outputs, sizeof(float));
+            l.variance_delta = (float*)calloc(outputs, sizeof(float));
+        }
+        
 
         l.rolling_mean = (float*)calloc(outputs, sizeof(float));
         l.rolling_variance = (float*)calloc(outputs, sizeof(float));
 
-        l.x = (float*)calloc(batch*outputs, sizeof(float));
-        l.x_norm = (float*)calloc(batch*outputs, sizeof(float));
+        if (global_training) l.x = (float*)calloc(batch*outputs, sizeof(float));
+        if (global_training) l.x_norm = (float*)calloc(batch*outputs, sizeof(float));
     }
 
 #ifdef GPU
@@ -360,6 +366,7 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
     l.out_h = 1;
     l.out_w = 1;
     l.out_c = outputs;
+    l.nweights = outputs*inputs;
 
     //l.output = (float*)calloc(batch*outputs, sizeof(float));
     l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
@@ -606,6 +613,7 @@ layer_blocked make_connected_layer_blocked(int batch, int inputs, int outputs, A
     l.out_h = 1;
     l.out_w = 1;
     l.out_c = outputs;
+    l.nweights = outputs*inputs;
 
     //l.output = (float*)calloc(batch*outputs, sizeof(float));
     l.output = sgx::trusted::BlockedBuffer<float, 1>::MakeBlockedBuffer({batch*outputs});

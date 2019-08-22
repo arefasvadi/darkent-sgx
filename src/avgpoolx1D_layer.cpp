@@ -21,7 +21,7 @@ avgpoolx1D_layer make_avgpoolx1D_layer(int batch, int h, int w, int c, int size,
     l.stride = stride;
     int output_size = l.outputs * batch;
     l.output =  (float*)calloc(output_size, sizeof(float));
-    l.delta =   (float*)calloc(output_size, sizeof(float));
+    if (global_training) l.delta =   (float*)calloc(output_size, sizeof(float));
     l.forward = forward_avgpoolx1D_layer;
     l.backward = backward_avgpoolx1D_layer;
     

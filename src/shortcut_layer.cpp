@@ -24,7 +24,7 @@ layer make_shortcut_layer(int batch, int index, int w, int h, int c, int w2, int
 
     l.index = index;
 
-    l.delta =  (float*)calloc(l.outputs*batch, sizeof(float));
+    if (global_training) l.delta =  (float*)calloc(l.outputs*batch, sizeof(float));
     l.output = (float*)calloc(l.outputs*batch, sizeof(float));;
 
     l.forward = forward_shortcut_layer;

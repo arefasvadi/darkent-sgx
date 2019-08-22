@@ -195,10 +195,11 @@ convolutional1D_layer make_convolutional1D_layer(int batch, int h, int w, int c,
     l.batch_normalize = batch_normalize;
 
     l.weights = (float*)calloc(c/groups*n*size, sizeof(float));
-    l.weight_updates = (float*)calloc(c/groups*n*size, sizeof(float));
+
+    if (global_training) l.weight_updates = (float*)calloc(c/groups*n*size, sizeof(float));
 
     l.biases = (float*)calloc(n, sizeof(float));
-    l.bias_updates = (float*)calloc(n, sizeof(float));
+    if (global_training) l.bias_updates = (float*)calloc(n, sizeof(float));
 
     l.nweights = c/groups*n*size;
     l.nbiases = n;
@@ -218,7 +219,7 @@ convolutional1D_layer make_convolutional1D_layer(int batch, int h, int w, int c,
     l.inputs = l.w * l.h * l.c;
 
     l.output = (float*)calloc(l.batch*l.outputs, sizeof(float));
-    l.delta  = (float*)calloc(l.batch*l.outputs, sizeof(float));
+    if (global_training) l.delta  = (float*)calloc(l.batch*l.outputs, sizeof(float));
 
     l.forward = forward_convolutional1D_layer;
     l.backward = backward_convolutional1D_layer;
@@ -237,29 +238,39 @@ convolutional1D_layer make_convolutional1D_layer(int batch, int h, int w, int c,
 
     if(batch_normalize){
         l.scales = (float*)calloc(n, sizeof(float));
-        l.scale_updates = (float*)calloc(n, sizeof(float));
-        for(i = 0; i < n; ++i){
-            l.scales[i] = 1;
+        if (global_training) l.scale_updates = (float*)calloc(n, sizeof(float));
+        
+        if (global_training) {
+            for(i = 0; i < n; ++i) {
+                l.scales[i] = 1;
+            }
         }
 
-        l.mean = (float*)calloc(n, sizeof(float));
-        l.variance = (float*)calloc(n, sizeof(float));
+        if (global_training) {
+            l.mean = (float*)calloc(n, sizeof(float));
+            l.variance = (float*)calloc(n, sizeof(float));
 
-        l.mean_delta = (float*)calloc(n, sizeof(float));
-        l.variance_delta = (float*)calloc(n, sizeof(float));
-
+            l.mean_delta = (float*)calloc(n, sizeof(float));
+            l.variance_delta = (float*)calloc(n, sizeof(float));
+        }
+        
         l.rolling_mean = (float*)calloc(n, sizeof(float));
         l.rolling_variance = (float*)calloc(n, sizeof(float));
-        l.x = (float*)calloc(l.batch*l.outputs, sizeof(float));
-        l.x_norm = (float*)calloc(l.batch*l.outputs, sizeof(float));
+        
+        if (global_training) {
+            l.x = (float*)calloc(l.batch*l.outputs, sizeof(float));
+            l.x_norm = (float*)calloc(l.batch*l.outputs, sizeof(float));
+        }
     }
-    if(adam){
-        l.m = (float*)calloc(l.nweights, sizeof(float));
-        l.v = (float*)calloc(l.nweights, sizeof(float));
-        l.bias_m = (float*)calloc(n, sizeof(float));
-        l.scale_m = (float*)calloc(n, sizeof(float));
-        l.bias_v = (float*)calloc(n, sizeof(float));
-        l.scale_v = (float*)calloc(n, sizeof(float));
+    if (global_training) {
+        if(adam){
+            l.m = (float*)calloc(l.nweights, sizeof(float));
+            l.v = (float*)calloc(l.nweights, sizeof(float));
+            l.bias_m = (float*)calloc(n, sizeof(float));
+            l.scale_m = (float*)calloc(n, sizeof(float));
+            l.bias_v = (float*)calloc(n, sizeof(float));
+            l.scale_v = (float*)calloc(n, sizeof(float));
+        }
     }
 
 #ifdef GPU

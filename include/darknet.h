@@ -693,10 +693,23 @@ int option_find_int(list *l, char *key, int def);
 int option_find_int_quiet(list *l, char *key, int def);
 
 network *parse_network_cfg(char *filename);
+#ifndef USE_SGX
 void save_weights(network *net, char *filename);
 void load_weights(network *net, char *filename);
 void save_weights_upto(network *net, char *filename, int cutoff);
 void load_weights_upto(network *net, char *filename, int start, int cutoff);
+#else
+void save_weights(network *net);
+void load_weights(network *net);
+void save_weights_upto(network *net, size_t *index, int cutoff);
+void load_weights_upto(network *net, size_t *index, int start, int cutoff);
+
+void save_weights_encrypted(network *net);
+void load_weights_encrypted(network *net);
+void save_weights_upto_encrypted(network *net, size_t *index, int cutoff);
+void load_weights_upto_encrypted(network *net, size_t *index, int start, int cutoff);
+#endif
+
 
 void zero_objectness(layer l);
 void get_region_detections(layer l, int w, int h, int netw, int neth, float thresh, int *map, float tree_thresh, int relative, detection *dets);
@@ -750,7 +763,12 @@ void draw_detections(image im, detection *dets, int num, float thresh, char **na
 matrix network_predict_data(network *net, data test);
 image **load_alphabet();
 image get_network_image(network *net);
+#ifdef USE_SGX_LAYERWISE
+std::vector<float> network_predict(network *net, float *input);
+#else
 float *network_predict(network *net, float *input);
+#endif
+
 
 int network_width(network *net);
 int network_height(network *net);

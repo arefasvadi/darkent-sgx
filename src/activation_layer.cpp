@@ -20,7 +20,7 @@ layer make_activation_layer(int batch, int inputs, ACTIVATION activation)
     l.batch=batch;
 
     l.output = (float*)calloc(batch*inputs, sizeof(float));
-    l.delta = (float*)calloc(batch*inputs, sizeof(float));
+    if (global_training) l.delta = (float*)calloc(batch*inputs, sizeof(float));
 
     l.forward = forward_activation_layer;
     l.backward = backward_activation_layer;
@@ -90,6 +90,7 @@ void forward_activation_layer(layer l, network net)
 {
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+    //float* net_input_ptr = &net_input[0];
     copy_cpu(l.outputs*l.batch, &net_input[0], 1, &l_output[0], 1);
     activate_array(&l_output[0], l.outputs*l.batch, l.activation);
     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);

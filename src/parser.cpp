@@ -1600,7 +1600,837 @@ void load_weights_upto(network *net, char *filename, int start, int cutoff) {
 void load_weights(network *net, char *filename) {
   load_weights_upto(net, filename, 0, net->n);
 }
-#else
+#endif
+
+#if defined(USE_SGX)
+void load_connected_weights(layer l, size_t *index, int transpose)
+{
+    sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+    if(transpose){
+        //transpose_matrix(l.weights, l.inputs, l.outputs);
+        LOG_ERROR("Transpose not implemented yet!\n");
+        abort();
+    }
+    //fread(l.biases, sizeof(float), l.outputs, fp);
+    #if defined (USE_SGX)
+    #if defined (USE_SGX_LAYERWISE)
+    {
+      auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_biases[0], sizeof(float)*l.outputs);
+      CHECK_SGX_SUCCESS(ret, "could not read biases");
+      *index+=sizeof(float)*l.outputs;
+      l.biases->setItemsInRange(0, l.biases->getBufferSize(),l_biases);
+    }
+    //fread(l.weights, sizeof(float), l.outputs*l.inputs, fp);
+    {
+      for (int i=0;i<l.outputs;++i) {
+        auto l_weights = l.weights->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_weights[0], sizeof(float)*l.inputs);
+        CHECK_SGX_SUCCESS(ret, "could not read weights");
+        *index += sizeof(float)*l.inputs;
+        l.weights->setItemsInRange(i*l.inputs, (i+1)*l.inputs,l_weights);
+      }
+    }
+    //fread(l.scales, sizeof(float), l.outputs, fp);
+    if (l.batch_normalize && (!l.dontloadscales)){
+      {
+        auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_scales[0], sizeof(float)*l.outputs);
+        CHECK_SGX_SUCCESS(ret, "could not read scales");
+        *index+=sizeof(float)*l.outputs;
+        l.scales->setItemsInRange(0, l.scales->getBufferSize(),l_scales);
+      }
+      //fread(l.rolling_mean, sizeof(float), l.outputs, fp);
+      {
+        auto l_rolling_mean = l.rolling_mean->getItemsInRange(0, l.rolling_mean->getBufferSize());
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_mean[0], sizeof(float)*l.outputs);
+        CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+        *index+=sizeof(float)*l.outputs;
+        l.rolling_mean->setItemsInRange(0, l.rolling_mean->getBufferSize(),l_rolling_mean);
+      }
+      //fread(l.rolling_variance, sizeof(float), l.outputs, fp);
+      {
+        auto l_rolling_variance = l.rolling_variance->getItemsInRange(0, l.rolling_variance->getBufferSize());
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_variance[0], sizeof(float)*l.outputs);
+        CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+        *index+=sizeof(float)*l.outputs;
+        l.rolling_variance->setItemsInRange(0, l.rolling_variance->getBufferSize(),l_rolling_variance);
+      }
+    }
+    #else
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) l.biases, sizeof(float)*l.outputs);
+    CHECK_SGX_SUCCESS(ret, "could not read biases");
+    *index+=sizeof(float)*l.outputs;
+
+    for (int i=0;i<l.outputs;++i) {
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) &l.weights[i*l.inputs], sizeof(float)*l.inputs);
+      CHECK_SGX_SUCCESS(ret, "could not read weights");
+      *index += sizeof(float)*l.inputs;
+    }
+    if (l.batch_normalize && (!l.dontloadscales)){
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) l.scales, sizeof(float)*l.outputs);
+      CHECK_SGX_SUCCESS(ret, "could not read scales");
+      *index+=sizeof(float)*l.outputs;
+
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_mean, sizeof(float)*l.outputs);
+      CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+      *index+=sizeof(float)*l.outputs;
+
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_variance, sizeof(float)*l.outputs);
+      CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+      *index+=sizeof(float)*l.outputs;
+    }
+    #endif
+    #endif
+}
+
+void load_batchnorm_weights(layer l, size_t *index) {
+  sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+  #if defined (USE_SGX)
+  #if defined (USE_SGX_LAYERWISE)
+  //fread(l.scales, sizeof(float), l.c, fp);
+  {
+    auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_scales[0], sizeof(float)*l.c);
+    CHECK_SGX_SUCCESS(ret, "could not read scales");
+    *index+=sizeof(float)*l.c;
+    l.scales->setItemsInRange(0, l.scales->getBufferSize(),l_scales);
+  }
+  //fread(l.rolling_mean, sizeof(float), l.c, fp);
+  {
+    auto l_rolling_mean = l.rolling_mean->getItemsInRange(0, l.rolling_mean->getBufferSize());
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_mean[0], sizeof(float)*l.c);
+    CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+    *index+=sizeof(float)*l.c;
+    l.rolling_mean->setItemsInRange(0, l.rolling_mean->getBufferSize(),l_rolling_mean);
+  }
+  //fread(l.rolling_variance, sizeof(float), l.c, fp);
+  {
+    auto l_rolling_variance = l.rolling_variance->getItemsInRange(0, l.rolling_variance->getBufferSize());
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_variance[0], sizeof(float)*l.c);
+    CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+    *index+=sizeof(float)*l.c;
+    l.rolling_variance->setItemsInRange(0, l.rolling_variance->getBufferSize(),l_rolling_variance);
+  }
+  #else
+  ret = ocall_load_weights_plain(*index,  (unsigned char*) l.scales, sizeof(float)*l.c);
+  CHECK_SGX_SUCCESS(ret, "could not read scales");
+  *index+=sizeof(float)*l.c;
+
+  ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_mean, sizeof(float)*l.c);
+  CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+  *index+=sizeof(float)*l.c;
+
+  ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_variance, sizeof(float)*l.c);
+  CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+  *index+=sizeof(float)*l.c;
+  #endif
+  #endif
+}
+
+void load_convolutional_weights_binary(layer l, size_t *index) {
+  LOG_ERROR("load conv weights binary not implemented\n")
+  abort();
+  // fread(l.biases, sizeof(float), l.n, fp);
+  // if (l.batch_normalize && (!l.dontloadscales)) {
+  //   fread(l.scales, sizeof(float), l.n, fp);
+  //   fread(l.rolling_mean, sizeof(float), l.n, fp);
+  //   fread(l.rolling_variance, sizeof(float), l.n, fp);
+  // }
+  // int size = l.c * l.size * l.size;
+  // int i, j, k;
+  // for (i = 0; i < l.n; ++i) {
+  //   float mean = 0;
+  //   fread(&mean, sizeof(float), 1, fp);
+  //   for (j = 0; j < size / 8; ++j) {
+  //     int index = i * size + j * 8;
+  //     unsigned char c = 0;
+  //     fread(&c, sizeof(char), 1, fp);
+  //     for (k = 0; k < 8; ++k) {
+  //       if (j * 8 + k >= size)
+  //         break;
+  //       l.weights[index + k] = (c & 1 << k) ? mean : -mean;
+  //     }
+  //   }
+  // }
+}
+
+void load_convolutional_weights(layer l, size_t *index) {
+  sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+  if(l.binary){
+    LOG_ERROR("load binary weights not implemented\n")
+    abort();
+      //load_convolutional_weights_binary(l, fp);
+      //return;
+  }
+  if(l.numload) l.n = l.numload;
+  int num = l.c/l.groups*l.n*l.size*l.size;
+  if (l.type == CONVOLUTIONAL1D) {
+      num = l.c/l.groups*l.n*1*l.size;
+  }
+  if (num != l.nweights) {
+      LOG_ERROR("nweights is not equal num for loading\n")
+      abort();
+  }
+  #if defined (USE_SGX)
+  #if defined (USE_SGX_LAYERWISE)
+  //fread(l.biases, sizeof(float), l.n, fp);
+  {
+    auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_biases[0], sizeof(float)*l.n);
+    CHECK_SGX_SUCCESS(ret, "could not read biases");
+    *index+=sizeof(float)*l.n;
+    l.biases->setItemsInRange(0, l.biases->getBufferSize(),l_biases);
+  }
+  if (l.batch_normalize && (!l.dontloadscales)) {
+    //fread(l.scales, sizeof(float), l.n, fp);
+    {
+      auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_scales[0], sizeof(float)*l.n);
+      CHECK_SGX_SUCCESS(ret, "could not read scales");
+      *index+=sizeof(float)*l.n;
+      l.scales->setItemsInRange(0, l.scales->getBufferSize(),l_scales);
+    }
+    //fread(l.rolling_mean, sizeof(float), l.n, fp);
+    {
+      auto l_rolling_mean = l.rolling_mean->getItemsInRange(0, l.rolling_mean->getBufferSize());
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_mean[0], sizeof(float)*l.n);
+      CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+      *index+=sizeof(float)*l.n;
+      l.rolling_mean->setItemsInRange(0, l.rolling_mean->getBufferSize(),l_rolling_mean);
+    }
+    //fread(l.rolling_variance, sizeof(float), l.n, fp);
+    {
+      auto l_rolling_variance = l.rolling_variance->getItemsInRange(0, l.rolling_variance->getBufferSize());
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_variance[0], sizeof(float)*l.n);
+      CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+      *index+=sizeof(float)*l.n;
+      l.rolling_variance->setItemsInRange(0, l.rolling_variance->getBufferSize(),l_rolling_variance);
+    }
+    //fread(l.weights, sizeof(float), num, fp);
+    {
+      int buffer_size = (num) / (l.c/l.groups);
+      for (int i=0;i<l.c/l.groups;++i) {
+        auto l_weights = l.weights->getItemsInRange(i*buffer_size, (i+1)*buffer_size);
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_weights[0], sizeof(float)*buffer_size);
+        CHECK_SGX_SUCCESS(ret, "could not read conv weights");
+        l.weights->setItemsInRange(i*buffer_size, (i+1)*buffer_size,l_weights);
+        *index+=sizeof(float)*buffer_size;
+      }
+    }
+  }
+  #else
+  ret = ocall_load_weights_plain(*index,  (unsigned char*) l.biases, sizeof(float)*l.n);
+  CHECK_SGX_SUCCESS(ret, "could not read biases");
+  *index+=sizeof(float)*l.n;
+  if (l.batch_normalize && (!l.dontloadscales)) {
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) l.scales, sizeof(float)*l.n);
+    CHECK_SGX_SUCCESS(ret, "could not read scales");
+    *index+=sizeof(float)*l.n;
+
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_mean, sizeof(float)*l.n);
+    CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+    *index+=sizeof(float)*l.n;
+
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_variance, sizeof(float)*l.n);
+    CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+    *index+=sizeof(float)*l.n;
+  }
+  int buffer_size = (num) / (l.c/l.groups);
+  for (int i=0;i<l.c/l.groups;++i) {
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &l.weights[i*buffer_size], sizeof(float)*buffer_size);
+    CHECK_SGX_SUCCESS(ret, "could not read conv weights");
+    *index+=sizeof(float)*buffer_size;
+  }
+  #endif
+  #endif
+  // if(l.c == 3) scal_cpu(num, 1./256, l.weights, 1);
+  if (l.flipped) {
+    LOG_ERROR("loading with l.flipped not implemented\n")
+    abort();
+    //transpose_matrix(l.weights, l.c * l.size * l.size, l.n);
+  }
+// if (l.binary) binarize_weights(l.weights, l.n, l.c*l.size*l.size, l.weights);
+}
+
+void load_weights_upto(network *net, size_t *index, int start, int cutoff) {
+  int major;
+  int minor;
+  int revision;
+  sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+  //fread(&major, sizeof(int), 1, fp);
+  ret = ocall_load_weights_plain(*index, (unsigned char*) &major, sizeof(int));
+  CHECK_SGX_SUCCESS(ret, "could not read major version");
+  *index+=sizeof(int);
+  //fread(&minor, sizeof(int), 1, fp);
+  ret = ocall_load_weights_plain(*index,  (unsigned char*) &minor, sizeof(int));
+  CHECK_SGX_SUCCESS(ret, "could not read minor version");
+  *index+=sizeof(int);
+  //fread(&revision, sizeof(int), 1, fp);
+  ret = ocall_load_weights_plain(*index,  (unsigned char*) &revision, sizeof(int));
+  CHECK_SGX_SUCCESS(ret, "could not read revision version");
+  *index+=sizeof(int);
+  if ((major * 10 + minor) >= 2 && major < 1000 && minor < 1000) {
+    //fread(net->seen, sizeof(size_t), 1, fp);
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &(net->seen), sizeof(size_t));
+    CHECK_SGX_SUCCESS(ret, "could not read net->seen version");
+    *index+=sizeof(size_t);
+  } else {
+    int iseen = 0;
+    //fread(&iseen, sizeof(int), 1, fp);
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &(iseen), sizeof(int));
+    CHECK_SGX_SUCCESS(ret, "could not read isseen version");
+    *index+=sizeof(int);
+    *net->seen = iseen;
+  }
+  int transpose = (major > 1000) || (minor > 1000);
+
+  int i;
+  for (i = start; i < net->n && i < cutoff; ++i) {
+    layer l = net->layers[i];
+    if (l.dontload)
+      continue;
+    if (l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL  || l.type == CONVOLUTIONAL1D) {
+      load_convolutional_weights(l, index);
+    }
+    if (l.type == CONNECTED) {
+      load_connected_weights(l, index, transpose);
+    }
+    if (l.type == BATCHNORM) {
+      load_batchnorm_weights(l, index);
+    }
+    if (l.type == CRNN) {
+      load_convolutional_weights(*(l.input_layer), index);
+      load_convolutional_weights(*(l.self_layer), index);
+      load_convolutional_weights(*(l.output_layer), index);
+    }
+    if (l.type == RNN) {
+      load_connected_weights(*(l.input_layer), index, transpose);
+      load_connected_weights(*(l.self_layer), index, transpose);
+      load_connected_weights(*(l.output_layer), index, transpose);
+    }
+    if (l.type == LSTM) {
+      load_connected_weights(*(l.wi), index, transpose);
+      load_connected_weights(*(l.wf), index, transpose);
+      load_connected_weights(*(l.wo), index, transpose);
+      load_connected_weights(*(l.wg), index, transpose);
+      load_connected_weights(*(l.ui), index, transpose);
+      load_connected_weights(*(l.uf), index, transpose);
+      load_connected_weights(*(l.uo), index, transpose);
+      load_connected_weights(*(l.ug), index, transpose);
+    }
+    if (l.type == GRU) {
+      if (1) {
+        load_connected_weights(*(l.wz), index, transpose);
+        load_connected_weights(*(l.wr), index, transpose);
+        load_connected_weights(*(l.wh), index, transpose);
+        load_connected_weights(*(l.uz), index, transpose);
+        load_connected_weights(*(l.ur), index, transpose);
+        load_connected_weights(*(l.uh), index, transpose);
+      } else {
+        load_connected_weights(*(l.reset_layer), index, transpose);
+        load_connected_weights(*(l.update_layer), index, transpose);
+        load_connected_weights(*(l.state_layer), index, transpose);
+      }
+    }
+    if (l.type == LOCAL) {
+      LOG_ERROR("LOCAL layer load weights not implemented!\n")
+      abort();
+
+      // int locations = l.out_w * l.out_h;
+      // int size = l.size * l.size * l.c * l.n * locations;
+      // fread(l.biases, sizeof(float), l.outputs, fp);
+      // fread(l.weights, sizeof(float), size, fp);
+    }
+  }
+  //fprintf(stderr, "Done!\n");
+  //fclose(fp);
+}
+
+void load_weights(network *net) {
+  size_t * index = new size_t;
+  *index = 0;
+  load_weights_upto(net, index, 0, net->n);
+  delete index;
+}
+
+void load_connected_weights_encrypted(layer l, size_t *index, int transpose,uint8_t* enc_key_weights,
+                                      uint8_t* iv_weights, uint8_t* tag_weights)
+{
+    sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+    if(transpose){
+        //transpose_matrix(l.weights, l.inputs, l.outputs);
+        LOG_ERROR("Transpose not implemented yet!\n");
+        abort();
+    }
+    //fread(l.biases, sizeof(float), l.outputs, fp);
+    #if defined (USE_SGX)
+    #if defined (USE_SGX_LAYERWISE)
+    LOG_ERROR("Layerwise loading encrypted weights not implemented\n")
+    abort();
+    {
+      auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_biases[0], sizeof(float)*l.outputs);
+      CHECK_SGX_SUCCESS(ret, "could not read biases");
+      *index+=sizeof(float)*l.outputs;
+      l.biases->setItemsInRange(0, l.biases->getBufferSize(),l_biases);
+    }
+    //fread(l.weights, sizeof(float), l.outputs*l.inputs, fp);
+    {
+      for (int i=0;i<l.outputs;++i) {
+        auto l_weights = l.weights->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_weights[0], sizeof(float)*l.inputs);
+        CHECK_SGX_SUCCESS(ret, "could not read weights");
+        *index += sizeof(float)*l.inputs;
+        l.weights->setItemsInRange(i*l.inputs, (i+1)*l.inputs,l_weights);
+      }
+    }
+    //fread(l.scales, sizeof(float), l.outputs, fp);
+    if (l.batch_normalize && (!l.dontloadscales)){
+      {
+        auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_scales[0], sizeof(float)*l.outputs);
+        CHECK_SGX_SUCCESS(ret, "could not read scales");
+        *index+=sizeof(float)*l.outputs;
+        l.scales->setItemsInRange(0, l.scales->getBufferSize(),l_scales);
+      }
+      //fread(l.rolling_mean, sizeof(float), l.outputs, fp);
+      {
+        auto l_rolling_mean = l.rolling_mean->getItemsInRange(0, l.rolling_mean->getBufferSize());
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_mean[0], sizeof(float)*l.outputs);
+        CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+        *index+=sizeof(float)*l.outputs;
+        l.rolling_mean->setItemsInRange(0, l.rolling_mean->getBufferSize(),l_rolling_mean);
+      }
+      //fread(l.rolling_variance, sizeof(float), l.outputs, fp);
+      {
+        auto l_rolling_variance = l.rolling_variance->getItemsInRange(0, l.rolling_variance->getBufferSize());
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_variance[0], sizeof(float)*l.outputs);
+        CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+        *index+=sizeof(float)*l.outputs;
+        l.rolling_variance->setItemsInRange(0, l.rolling_variance->getBufferSize(),l_rolling_variance);
+      }
+    }
+    #else
+    uint8_t* temp_space = new uint8_t[l.nweights*sizeof(float)];
+    if (!temp_space) {
+      LOG_ERROR("Could not allocate temporary space!\n")
+      abort();
+    }
+    //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.biases, sizeof(float)*l.outputs);
+    ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.outputs,&iv_weights[0],&tag_weights[0],1);
+    CHECK_SGX_SUCCESS(ret, "could not read biases");
+    ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.outputs,(uint8_t*)l.biases,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+    CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+
+    size_t req_buffer_bytes = l.nweights*sizeof(float);
+    size_t interim_buff_bytes = 64 * ONE_KB;
+    int q = req_buffer_bytes / interim_buff_bytes;
+    int r = req_buffer_bytes % interim_buff_bytes;
+    for (int i=0;i<q;++i) {
+      //ret = ocall_load_weights_plain(*index,  (unsigned char*) &l.weights[i*l.inputs], sizeof(float)*l.inputs);      
+      if (r == 0 && i == q - 1) {
+        ret = ocall_load_weights_encrypted(i*interim_buff_bytes, 
+                                          (unsigned char*) &temp_space[i*interim_buff_bytes], 
+                                          interim_buff_bytes,&iv_weights[0],&tag_weights[0],1);
+      }
+      else {
+        ret = ocall_load_weights_encrypted(i*interim_buff_bytes, 
+                                          (unsigned char*) &temp_space[i*interim_buff_bytes], 
+                                          interim_buff_bytes,&iv_weights[0],&tag_weights[0],0);
+      }
+      CHECK_SGX_SUCCESS(ret, "could not read weights");
+    }
+    if (r > 0) {
+        ret = ocall_load_weights_encrypted(q*interim_buff_bytes, 
+                                          (unsigned char*) &temp_space[q*interim_buff_bytes], 
+                                          r,&iv_weights[0],&tag_weights[0],1);
+        //r = 0;
+    }
+    ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                temp_space,sizeof(float)*l.nweights,(uint8_t*)l.weights,
+                                iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+    CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+    if (l.batch_normalize && (!l.dontloadscales)){
+      //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.scales, sizeof(float)*l.outputs);
+      ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.outputs,&iv_weights[0],&tag_weights[0],1);
+      CHECK_SGX_SUCCESS(ret, "could not read scales");
+      ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.outputs,(uint8_t*)l.scales,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+      CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+
+      //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_mean, sizeof(float)*l.outputs);
+      ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.outputs,&iv_weights[0],&tag_weights[0],1);
+      CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+      ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.outputs,(uint8_t*)l.rolling_mean,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+      CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+      
+      //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_variance, sizeof(float)*l.outputs);
+      ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.outputs,&iv_weights[0],&tag_weights[0],1);
+      CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+      ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.outputs,(uint8_t*)l.rolling_variance,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+      CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+      
+    }
+    delete[] temp_space;
+    #endif
+    #endif
+}
+
+void load_batchnorm_weights_encrypted(layer l, size_t *index,
+                            uint8_t* enc_key_weights,
+                            uint8_t* iv_weights, uint8_t* tag_weights) {
+  sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+  #if defined (USE_SGX)
+  #if defined (USE_SGX_LAYERWISE)
+  LOG_ERROR("Layerwise loading encrypted weights not implemented\n")
+  abort();
+  //fread(l.scales, sizeof(float), l.c, fp);
+  {
+    auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_scales[0], sizeof(float)*l.c);
+    CHECK_SGX_SUCCESS(ret, "could not read scales");
+    *index+=sizeof(float)*l.c;
+    l.scales->setItemsInRange(0, l.scales->getBufferSize(),l_scales);
+  }
+  //fread(l.rolling_mean, sizeof(float), l.c, fp);
+  {
+    auto l_rolling_mean = l.rolling_mean->getItemsInRange(0, l.rolling_mean->getBufferSize());
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_mean[0], sizeof(float)*l.c);
+    CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+    *index+=sizeof(float)*l.c;
+    l.rolling_mean->setItemsInRange(0, l.rolling_mean->getBufferSize(),l_rolling_mean);
+  }
+  //fread(l.rolling_variance, sizeof(float), l.c, fp);
+  {
+    auto l_rolling_variance = l.rolling_variance->getItemsInRange(0, l.rolling_variance->getBufferSize());
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_variance[0], sizeof(float)*l.c);
+    CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+    *index+=sizeof(float)*l.c;
+    l.rolling_variance->setItemsInRange(0, l.rolling_variance->getBufferSize(),l_rolling_variance);
+  }
+  #else
+  uint8_t* temp_space = new uint8_t[sizeof(float)*l.c];
+  //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.scales, sizeof(float)*l.c);
+  ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.c,&iv_weights[0],&tag_weights[0],1);
+  CHECK_SGX_SUCCESS(ret, "could not read scales");
+  ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.c,(uint8_t*)l.scales,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+  CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+
+  //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_mean, sizeof(float)*l.c);
+  ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.c,&iv_weights[0],&tag_weights[0],1);
+  CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+  ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.c,(uint8_t*)l.rolling_mean,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+  CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+  
+  //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_variance, sizeof(float)*l.c);
+  ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.c,&iv_weights[0],&tag_weights[0],1);
+  CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+  ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.c,(uint8_t*)l.rolling_variance,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+  CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+  delete [] temp_space;
+  #endif
+  #endif
+}
+
+
+void load_convolutional_weights_encrypted(layer l, size_t *index,
+                                          uint8_t* enc_key_weights,
+                                          uint8_t* iv_weights, uint8_t* tag_weights) {
+  sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+  if(l.binary) {
+    LOG_ERROR("load binary weights not implemented\n")
+    abort();
+    // load_convolutional_weights_binary(l, fp);
+    // return;
+  }
+  if(l.numload) l.n = l.numload;
+  int num = l.c/l.groups*l.n*l.size*l.size;
+  if (l.type == CONVOLUTIONAL1D) {
+      num = l.c/l.groups*l.n*1*l.size;
+  }
+  if (num != l.nweights) {
+      LOG_ERROR("nweights is not equal num for loading\n")
+      abort();
+  }
+  #if defined (USE_SGX)
+  #if defined (USE_SGX_LAYERWISE)
+  LOG_ERROR("Layerwise loading encrypted weights not implemented\n")
+  abort();
+  //fread(l.biases, sizeof(float), l.n, fp);
+  {
+    auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+    ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_biases[0], sizeof(float)*l.n);
+    CHECK_SGX_SUCCESS(ret, "could not read biases");
+    *index+=sizeof(float)*l.n;
+    l.biases->setItemsInRange(0, l.biases->getBufferSize(),l_biases);
+  }
+  if (l.batch_normalize && (!l.dontloadscales)) {
+    //fread(l.scales, sizeof(float), l.n, fp);
+    {
+      auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_scales[0], sizeof(float)*l.n);
+      CHECK_SGX_SUCCESS(ret, "could not read scales");
+      *index+=sizeof(float)*l.n;
+      l.scales->setItemsInRange(0, l.scales->getBufferSize(),l_scales);
+    }
+    //fread(l.rolling_mean, sizeof(float), l.n, fp);
+    {
+      auto l_rolling_mean = l.rolling_mean->getItemsInRange(0, l.rolling_mean->getBufferSize());
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_mean[0], sizeof(float)*l.n);
+      CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+      *index+=sizeof(float)*l.n;
+      l.rolling_mean->setItemsInRange(0, l.rolling_mean->getBufferSize(),l_rolling_mean);
+    }
+    //fread(l.rolling_variance, sizeof(float), l.n, fp);
+    {
+      auto l_rolling_variance = l.rolling_variance->getItemsInRange(0, l.rolling_variance->getBufferSize());
+      ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_rolling_variance[0], sizeof(float)*l.n);
+      CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+      *index+=sizeof(float)*l.n;
+      l.rolling_variance->setItemsInRange(0, l.rolling_variance->getBufferSize(),l_rolling_variance);
+    }
+    //fread(l.weights, sizeof(float), num, fp);
+    {
+      int buffer_size = (num) / (l.c/l.groups);
+      for (int i=0;i<l.c/l.groups;++i) {
+        auto l_weights = l.weights->getItemsInRange(i*buffer_size, (i+1)*buffer_size);
+        ret = ocall_load_weights_plain(*index,  (unsigned char*) &l_weights[0], sizeof(float)*buffer_size);
+        CHECK_SGX_SUCCESS(ret, "could not read conv weights");
+        l.weights->setItemsInRange(i*buffer_size, (i+1)*buffer_size,l_weights);
+        *index+=sizeof(float)*buffer_size;
+      }
+    }
+  }
+  #else
+  uint8_t* temp_space = new uint8_t[l.nweights*sizeof(float)];
+  //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.biases, sizeof(float)*l.n);
+  ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.n,&iv_weights[0],&tag_weights[0],1);
+  CHECK_SGX_SUCCESS(ret, "could not read biases");
+  ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.n,(uint8_t*)l.biases,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+  CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+  if (l.batch_normalize && (!l.dontloadscales)) {
+    //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.scales, sizeof(float)*l.n);
+    ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.n,&iv_weights[0],&tag_weights[0],1);
+    CHECK_SGX_SUCCESS(ret, "could not read scales");
+    ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.n,(uint8_t*)l.scales,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+    CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+
+    //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_mean, sizeof(float)*l.n);
+    ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.n,&iv_weights[0],&tag_weights[0],1);
+    CHECK_SGX_SUCCESS(ret, "could not read rolling mean");
+    ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.n,(uint8_t*)l.rolling_mean,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+    CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+
+    //ret = ocall_load_weights_plain(*index,  (unsigned char*) l.rolling_variance, sizeof(float)*l.n);
+    ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(float)*l.n,&iv_weights[0],&tag_weights[0],1);
+    CHECK_SGX_SUCCESS(ret, "could not read variance mean");
+    ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(float)*l.n,(uint8_t*)l.rolling_variance,
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+    CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+  }
+  size_t req_buffer_bytes = l.nweights*sizeof(float);
+  size_t interim_buff_bytes = 64 * ONE_KB;
+  int q = req_buffer_bytes / interim_buff_bytes;
+  int r = req_buffer_bytes % interim_buff_bytes;
+  //ret = ocall_load_weights_plain(*index,  (unsigned char*) &l.weights[i*buffer_size], sizeof(float)  
+  for (int i=0;i<q;++i) {
+    if (r == 0 && i == q - 1) {
+      ret = ocall_load_weights_encrypted(i*interim_buff_bytes, 
+                                        (unsigned char*) &temp_space[i*interim_buff_bytes], 
+                                        interim_buff_bytes,&iv_weights[0],&tag_weights[0],1);
+    }
+    else {
+      ret = ocall_load_weights_encrypted(i*interim_buff_bytes, 
+                                        (unsigned char*) &temp_space[i*interim_buff_bytes], 
+                                        interim_buff_bytes,&iv_weights[0],&tag_weights[0],0);
+    }
+    CHECK_SGX_SUCCESS(ret, "could not read weights");
+  }
+  if (r > 0) {
+      ret = ocall_load_weights_encrypted(q*interim_buff_bytes, 
+                                        (unsigned char*) &temp_space[q*interim_buff_bytes], 
+                                        r,&iv_weights[0],&tag_weights[0],1);
+      //r = 0;
+  }
+  ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                temp_space,sizeof(float)*num,(uint8_t*)l.weights,
+                                iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+  CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+  delete [] temp_space;
+  #endif
+  #endif
+  // if(l.c == 3) scal_cpu(num, 1./256, l.weights, 1);
+  if (l.flipped) {
+    LOG_ERROR("loading with l.flipped not implemented\n")
+    abort();
+    //transpose_matrix(l.weights, l.c * l.size * l.size, l.n);
+  }
+// if (l.binary) binarize_weights(l.weights, l.n, l.c*l.size*l.size, l.weights);
+}
+
+void load_weights_upto_encrypted(network *net, size_t *index, int start, int cutoff) {
+  int major;
+  int minor;
+  int revision;
+
+  uint8_t enc_key_weights[AES_GCM_KEY_SIZE] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+  uint8_t iv_weights[AES_GCM_IV_SIZE];
+  uint8_t tag_weights[AES_GCM_TAG_SIZE];
+
+  uint8_t temp_space[8];
+
+  sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+  //fread(&major, sizeof(int), 1, fp);
+  ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(int),&iv_weights[0],&tag_weights[0],1);
+  CHECK_SGX_SUCCESS(ret, "could not read major version");
+  ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(int),(uint8_t*)&major, 
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+  CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+
+  //fread(&minor, sizeof(int), 1, fp);
+  ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(int),&iv_weights[0],&tag_weights[0],1);
+  CHECK_SGX_SUCCESS(ret, "could not read minor version");
+  ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(int),(uint8_t*)&minor, 
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+  CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+  //fread(&revision, sizeof(int), 1, fp);
+  ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(int),&iv_weights[0],&tag_weights[0],1);
+  CHECK_SGX_SUCCESS(ret, "could not read revision version");
+  ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(int),(uint8_t*)&revision, 
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+  CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+  if ((major * 10 + minor) >= 2 && major < 1000 && minor < 1000) {
+    //fread(net->seen, sizeof(size_t), 1, fp);
+    ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(size_t),&iv_weights[0],&tag_weights[0],1);
+    CHECK_SGX_SUCCESS(ret, "could not read net->seen version");
+    ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(size_t),(uint8_t*)net->seen, 
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+    CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+  } else {
+    int iseen = 0;
+    //fread(&iseen, sizeof(int), 1, fp);
+    ret = ocall_load_weights_encrypted(0, (unsigned char*) temp_space, sizeof(int),&iv_weights[0],&tag_weights[0],1);
+    CHECK_SGX_SUCCESS(ret, "could not read isseen version");
+    ret = sgx_rijndael128GCM_decrypt((const sgx_aes_gcm_128bit_key_t*)enc_key_weights,
+                                  temp_space,sizeof(int),(uint8_t*)&iseen, 
+                                  iv_weights, AES_GCM_IV_SIZE, NULL, 0, 
+                                  (const sgx_aes_gcm_128bit_tag_t*)tag_weights);
+    CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
+    *net->seen = iseen;
+  }
+  int transpose = (major > 1000) || (minor > 1000);
+
+  int i;
+  for (i = start; i < net->n && i < cutoff; ++i) {
+    layer l = net->layers[i];
+    if (l.dontload)
+      continue;
+    if (l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL  || l.type == CONVOLUTIONAL1D) {
+      load_convolutional_weights_encrypted(l, index,enc_key_weights,iv_weights,tag_weights);
+    }
+    if (l.type == CONNECTED) {
+      load_connected_weights_encrypted(l, index, transpose,enc_key_weights,iv_weights,tag_weights);
+    }
+    if (l.type == BATCHNORM) {
+      load_batchnorm_weights_encrypted(l, index,enc_key_weights,iv_weights,tag_weights);
+    }
+    if (l.type == CRNN) {
+      load_convolutional_weights_encrypted(*(l.input_layer), index,enc_key_weights,iv_weights,tag_weights);
+      load_convolutional_weights_encrypted(*(l.self_layer), index,enc_key_weights,iv_weights,tag_weights);
+      load_convolutional_weights_encrypted(*(l.output_layer), index,enc_key_weights,iv_weights,tag_weights);
+    }
+    if (l.type == RNN) {
+      load_connected_weights_encrypted(*(l.input_layer), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      load_connected_weights_encrypted(*(l.self_layer), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      load_connected_weights_encrypted(*(l.output_layer), index, transpose,enc_key_weights,iv_weights,tag_weights);
+    }
+    if (l.type == LSTM) {
+      load_connected_weights_encrypted(*(l.wi), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      load_connected_weights_encrypted(*(l.wf), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      load_connected_weights_encrypted(*(l.wo), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      load_connected_weights_encrypted(*(l.wg), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      load_connected_weights_encrypted(*(l.ui), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      load_connected_weights_encrypted(*(l.uf), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      load_connected_weights_encrypted(*(l.uo), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      load_connected_weights_encrypted(*(l.ug), index, transpose,enc_key_weights,iv_weights,tag_weights);
+    }
+    if (l.type == GRU) {
+      if (1) {
+        load_connected_weights_encrypted(*(l.wz), index, transpose,enc_key_weights,iv_weights,tag_weights);
+        load_connected_weights_encrypted(*(l.wr), index, transpose,enc_key_weights,iv_weights,tag_weights);
+        load_connected_weights_encrypted(*(l.wh), index, transpose,enc_key_weights,iv_weights,tag_weights);
+        load_connected_weights_encrypted(*(l.uz), index, transpose,enc_key_weights,iv_weights,tag_weights);
+        load_connected_weights_encrypted(*(l.ur), index, transpose,enc_key_weights,iv_weights,tag_weights);
+        load_connected_weights_encrypted(*(l.uh), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      } else {
+        load_connected_weights_encrypted(*(l.reset_layer), index, transpose,enc_key_weights,iv_weights,tag_weights);
+        load_connected_weights_encrypted(*(l.update_layer), index, transpose,enc_key_weights,iv_weights,tag_weights);
+        load_connected_weights_encrypted(*(l.state_layer), index, transpose,enc_key_weights,iv_weights,tag_weights);
+      }
+    }
+    if (l.type == LOCAL) {
+      LOG_ERROR("LOCAL layer load weights not implemented!\n")
+      abort();
+
+      // int locations = l.out_w * l.out_h;
+      // int size = l.size * l.size * l.c * l.n * locations;
+      // fread(l.biases, sizeof(float), l.outputs, fp);
+      // fread(l.weights, sizeof(float), size, fp);
+    }
+  }
+  //fprintf(stderr, "Done!\n");
+  //fclose(fp);
+}
+
+void load_weights_encrypted(network *net) {
+  size_t * index = new size_t;
+  *index = 0;
+  load_weights_upto_encrypted(net, index, 0, net->n);
+  delete index;
+
+}
 #endif
 
 #if defined (USE_SGX) && defined(USE_SGX_BLOCKING)

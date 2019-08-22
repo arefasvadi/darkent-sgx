@@ -23,7 +23,7 @@ route_layer make_route_layer(int batch, int n, int *input_layers, int *input_siz
     fprintf(stderr, "\n");
     l.outputs = outputs;
     l.inputs = outputs;
-    l.delta =  (float*)calloc(outputs*batch, sizeof(float));
+    if (global_training) l.delta =  (float*)calloc(outputs*batch, sizeof(float));
     l.output = (float*)calloc(outputs*batch, sizeof(float));;
 
     l.forward = forward_route_layer;

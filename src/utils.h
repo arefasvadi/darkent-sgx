@@ -2,6 +2,7 @@
 #define UTILS_H
 #ifdef USE_SGX
 #include <cstdio>
+#include "sgx_tcrypto.h"
 #else
 #include <stdio.h>
 #endif
