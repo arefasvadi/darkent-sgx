@@ -907,6 +907,7 @@ float rand_uniform(float min, float max);
     //int *mask;
     std::shared_ptr<sgx::trusted::SpecialBuffer<int>> mask;
     int total;
+    int enclave_layered_batch;
 
     float alpha;
     float beta;

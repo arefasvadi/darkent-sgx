@@ -371,12 +371,12 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
     //l.output = (float*)calloc(batch*outputs, sizeof(float));
     l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
     //l.delta = (float*)calloc(batch*outputs, sizeof(float));
-    l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
+    if (global_training) l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
 
     //l.weight_updates = (float*)calloc(inputs*outputs, sizeof(float));
-    l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*outputs);
+    if (global_training) l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*outputs);
     //l.bias_updates = (float*)calloc(outputs, sizeof(float));
-    l.bias_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+    if (global_training) l.bias_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
 
     //l.weights = (float*)calloc(outputs*inputs, sizeof(float));
     l.weights = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs*inputs);
@@ -407,28 +407,29 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
         }
         l.biases->setItemsInRange(0, l.biases->getBufferSize(),l_biases);
     }
-
-    if(adam){
-        //l.m = (float*)calloc(l.inputs*l.outputs, sizeof(float));
-        l.m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.inputs*l.outputs);
-        //l.v = (float*)calloc(l.inputs*l.outputs, sizeof(float));
-        l.v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.inputs*l.outputs);
-        //l.bias_m = (float*)calloc(l.outputs, sizeof(float));
-        l.bias_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
-        //l.scale_m = (float*)calloc(l.outputs, sizeof(float));
-        l.scale_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
-        //l.bias_v = (float*)calloc(l.outputs, sizeof(float));
-        l.bias_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
-        //l.scale_v = (float*)calloc(l.outputs, sizeof(float));
-        l.scale_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
+    if (global_training) {
+        if(adam){
+            //l.m = (float*)calloc(l.inputs*l.outputs, sizeof(float));
+            l.m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.inputs*l.outputs);
+            //l.v = (float*)calloc(l.inputs*l.outputs, sizeof(float));
+            l.v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.inputs*l.outputs);
+            //l.bias_m = (float*)calloc(l.outputs, sizeof(float));
+            l.bias_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
+            //l.scale_m = (float*)calloc(l.outputs, sizeof(float));
+            l.scale_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
+            //l.bias_v = (float*)calloc(l.outputs, sizeof(float));
+            l.bias_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
+            //l.scale_v = (float*)calloc(l.outputs, sizeof(float));
+            l.scale_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.outputs);
+        }
     }
     if(batch_normalize){
         //l.scales = (float*)calloc(outputs, sizeof(float));
         l.scales = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
         //l.scale_updates = (float*)calloc(outputs, sizeof(float));
-        l.scale_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+        if (global_training) l.scale_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
         
-        {
+        if (global_training) {
             auto scs = l.scales->getItemsInRange(0, l.scales->getBufferSize());
             for(i = 0; i < outputs; ++i){
                 scs[i] = 1;
@@ -436,26 +437,44 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
             l.scales->setItemsInRange(0, l.scales->getBufferSize(), scs);
         }
 
-        //l.mean = (float*)calloc(outputs, sizeof(float));
-        l.mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
-        //l.mean_delta = (float*)calloc(outputs, sizeof(float));
-        l.mean_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
-        //l.variance = (float*)calloc(outputs, sizeof(float));
-        l.variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
-        //l.variance_delta = (float*)calloc(outputs, sizeof(float));
-        l.variance_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
-
+        if (global_training) {
+            //l.mean = (float*)calloc(outputs, sizeof(float));
+            l.mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+            //l.mean_delta = (float*)calloc(outputs, sizeof(float));
+            l.mean_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+            //l.variance = (float*)calloc(outputs, sizeof(float));
+            l.variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+            //l.variance_delta = (float*)calloc(outputs, sizeof(float));
+            l.variance_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
+            //l.x = (float*)calloc(batch*outputs, sizeof(float));
+            l.x = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
+            //l.x_norm = (float*)calloc(batch*outputs, sizeof(float));
+            l.x_norm = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
+        }
         //l.rolling_mean = (float*)calloc(outputs, sizeof(float));
         l.rolling_mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
         //l.rolling_variance = (float*)calloc(outputs, sizeof(float));
         l.rolling_variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
-
-        //l.x = (float*)calloc(batch*outputs, sizeof(float));
-        l.x = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
-        //l.x_norm = (float*)calloc(batch*outputs, sizeof(float));
-        l.x_norm = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
+        
     }
     l.activation = activation;
+
+    uint64_t consumed_space_wo_weights_bytes = (l.inputs + l.outputs + l.nbiases)*sizeof(float);
+    l.enclave_layered_batch = (SGX_LAYERWISE_MAX_LAYER_SIZE - (consumed_space_wo_weights_bytes));
+    if (l.enclave_layered_batch <=0) {
+        LOG_ERROR("remaining space is negative!!!!\n");
+        abort();
+    }
+    l.enclave_layered_batch = 
+        (l.enclave_layered_batch / (sizeof(float)*l.nweights / l.outputs));
+
+    if (l.enclave_layered_batch <= 0) {
+        LOG_ERROR("remaining space is not enough for even a single batch!!!!\n");
+        abort();
+    }
+    if (l.enclave_layered_batch > l.outputs) {
+        l.enclave_layered_batch = l.outputs;
+    }
     //fprintf(stderr, "connected                            %4d  ->  %4d\n", inputs, outputs);
     return l;
 }
@@ -466,6 +485,9 @@ void update_connected_layer(layer l, update_args a)
     float momentum = a.momentum;
     float decay = a.decay;
     int batch = a.batch;
+    int enclave_update_batch = l.enclave_layered_batch / 2;
+    int q = l.outputs / enclave_update_batch;
+    int r = l.outputs % enclave_update_batch;
     {
         auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
         auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
@@ -485,14 +507,23 @@ void update_connected_layer(layer l, update_args a)
     }
 
     {
-        for (int i=0;i<l.outputs;++i) {
-            auto l_weights = l.weights->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
-            auto l_weight_updates = l.weight_updates->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
+        for (int i=0;i<q;++i) {
+            auto l_weights = l.weights->getItemsInRange(i*enclave_update_batch*l.inputs, (i+1)*enclave_update_batch*l.inputs);
+            auto l_weight_updates = l.weight_updates->getItemsInRange(i*enclave_update_batch*l.inputs, (i+1)*enclave_update_batch*l.inputs);
             axpy_cpu(l.inputs, -decay*batch, &l_weights[0], 1, &l_weight_updates[0], 1);
             axpy_cpu(l.inputs, learning_rate/batch, &l_weight_updates[0], 1, &l_weights[0], 1);
             scal_cpu(l.inputs, momentum, &l_weight_updates[0], 1);
-            l.weights->setItemsInRange(i*l.inputs, (i+1)*l.inputs,l_weights);
-            l.weight_updates->setItemsInRange(i*l.inputs, (i+1)*l.inputs,l_weight_updates);
+            l.weights->setItemsInRange(i*enclave_update_batch*l.inputs, (i+1)*enclave_update_batch*l.inputs,l_weights);
+            l.weight_updates->setItemsInRange(i*enclave_update_batch*l.inputs, (i+1)*enclave_update_batch*l.inputs,l_weight_updates);
+        }
+        if (r > 0) {
+            auto l_weights = l.weights->getItemsInRange(q*enclave_update_batch*l.inputs, q*enclave_update_batch*l.inputs + r*l.inputs);
+            auto l_weight_updates = l.weight_updates->getItemsInRange(q*enclave_update_batch*l.inputs, q*enclave_update_batch*l.inputs+r*l.inputs);
+            axpy_cpu(l.inputs, -decay*batch, &l_weights[0], 1, &l_weight_updates[0], 1);
+            axpy_cpu(l.inputs, learning_rate/batch, &l_weight_updates[0], 1, &l_weights[0], 1);
+            scal_cpu(l.inputs, momentum, &l_weight_updates[0], 1);
+            l.weights->setItemsInRange(q*enclave_update_batch*l.inputs, q*enclave_update_batch*l.inputs + r*l.inputs,l_weights);
+            l.weight_updates->setItemsInRange(q*enclave_update_batch*l.inputs, q*enclave_update_batch*l.inputs+r*l.inputs,l_weight_updates);
         }
         //axpy_cpu(l.inputs*l.outputs, -decay*batch, l.weights, 1, l.weight_updates, 1);
         //axpy_cpu(l.inputs*l.outputs, learning_rate/batch, l.weight_updates, 1, l.weights, 1);
@@ -509,21 +540,52 @@ void forward_connected_layer(layer l, network net)
     int k = l.inputs;
     int n = l.outputs;
     
+    int q = l.outputs / l.enclave_layered_batch;
+    int r = l.outputs % l.enclave_layered_batch;
+
     {
+        std::vector<float> temp_out(l.batch*l.enclave_layered_batch,0.0);
         float *a = &net_input[0];
-        for (int i=0;i<l.outputs;++i) {
-            std::vector<float> temp_out;
+        for (int i=0;i<q;++i) {
+            //std::vector<float> temp_out;
             for (int j=0;j<l.batch;++j) {
-                temp_out.push_back(l_output[j*l.outputs + i]);
+                //temp_out.push_back(l_output[j*l.outputs + i]);
+                for (int p=0;p<l.enclave_layered_batch;++p) {
+                    temp_out[j*l.enclave_layered_batch+p] = 
+                        l_output[j*l.outputs + i*l.enclave_layered_batch + p];
+                }
             }
             float *c = &temp_out[0];
-            auto l_weights = l.weights->getItemsInRange(i*l.inputs,(i+1)*l.inputs); 
+            auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs,(i+1)*l.enclave_layered_batch*l.inputs); 
             float *b = &l_weights[0];        
-            gemm(0,1,m,1,k,1,a,k,b,k,1,c,1);
+            gemm(0,1,m,l.enclave_layered_batch,k,1,a,k,b,k,1,c,l.enclave_layered_batch);
             for (int j=0;j<l.batch;++j) {
-                l_output[j*l.outputs + i] = temp_out[j];
+                //l_output[j*l.outputs + i] = temp_out[j];
+                for (int p=0;p<l.enclave_layered_batch;++p) {
+                    l_output[j*l.outputs + i*l.enclave_layered_batch + p] = 
+                        temp_out[j*l.enclave_layered_batch+p] ;
+                }
             }
             //l.weights->setItemsInRange(i*l.inputs,(i+1)*l.inputs,l_weights);
+        }
+        if (r > 0) {
+            for (int j=0;j<l.batch;++j) {
+                //temp_out.push_back(l_output[j*l.outputs + i]);
+                for (int p=0;p<r;++p) {
+                    temp_out[j*r+p] = 
+                        l_output[j*l.outputs + q*l.enclave_layered_batch + p];
+                }
+            }
+            float *c = &temp_out[0];
+            auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*l.inputs,q*l.enclave_layered_batch*l.inputs+r*l.inputs); 
+            float *b = &l_weights[0];        
+            gemm(0,1,m,r,k,1,a,k,b,k,1,c,r);
+            for (int j=0;j<l.batch;++j) {
+                for (int p=0;p<r;++p) {
+                    l_output[j*l.outputs + q*l.enclave_layered_batch + p] = 
+                        temp_out[j*r+p];
+                }
+            }
         }
         //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
     }
@@ -559,19 +621,45 @@ void backward_connected_layer(layer l, network net)
         l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
     }
 
+    int q = l.outputs / l.enclave_layered_batch;
+    int r = l.outputs % l.enclave_layered_batch;
+
     int m = l.outputs;
     int k = l.batch;
     int n = l.inputs;
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
     float *b = &net_input[0];
-    for (int i=0;i<m;++i) {
-        float *a = &l_delta[0]+i;
-        auto l_weight_updates = l.weight_updates->getItemsInRange(i*n, (i+1)*n);
-        float *c = &l_weight_updates[0];
-        gemm(1,0,1,n,k,1,a,1,b,n,1,c,n);
-        l.weight_updates->setItemsInRange(i*n, (i+1)*n,l_weight_updates);
+    {
+        std::vector<float> temp_delta(l.batch*l.enclave_layered_batch,0.0);
+        for (int i=0;i<q;++i) {
+            for (int j=0;j<l.batch;++j) {
+                for (int p=0;p<l.enclave_layered_batch;++p) {
+                    temp_delta[j*l.enclave_layered_batch+p] = 
+                        l_delta[j*l.outputs + i*l.enclave_layered_batch + p];
+                }
+            }
+            float *a = &temp_delta[0];
+            auto l_weight_updates = l.weight_updates->getItemsInRange(i*l.enclave_layered_batch*n, (i+1)*l.enclave_layered_batch*n);
+            float *c = &l_weight_updates[0];
+            gemm(1,0,l.enclave_layered_batch,n,k,1,a,l.enclave_layered_batch,b,n,1,c,n);
+            l.weight_updates->setItemsInRange(i*l.enclave_layered_batch*n, (i+1)*l.enclave_layered_batch*n,l_weight_updates);
+        }
+        if (r > 0) {
+            for (int j=0;j<l.batch;++j) {
+                for (int p=0;p<r;++p) {
+                    temp_delta[j*r+p] = 
+                        l_delta[j*l.outputs + q*l.enclave_layered_batch + p];
+                }
+            }
+            float *a = &temp_delta[0];
+            auto l_weight_updates = l.weight_updates->getItemsInRange(q*l.enclave_layered_batch*n, q*l.enclave_layered_batch*n + r*n);
+            float *c = &l_weight_updates[0];
+            gemm(1,0,r,n,k,1,a,r,b,n,1,c,n);
+            l.weight_updates->setItemsInRange(q*l.enclave_layered_batch*n, q*l.enclave_layered_batch*n+r*n,l_weight_updates);
+        }
+        //gemm(1,0,m,n,k,1,a,m,b,n,1,c,n);
     }
-    //gemm(1,0,m,n,k,1,a,m,b,n,1,c,n);
+    
 
     m = l.batch;
     k = l.outputs;
@@ -579,16 +667,33 @@ void backward_connected_layer(layer l, network net)
 
     if(net.delta) {
         auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
-        for (int i=0;i<l.outputs;++i) {
-            std::vector<float> temp_delta;
+        std::vector<float> temp_delta(l.batch*l.enclave_layered_batch,0.0);
+        for (int i=0;i<q;++i) {
+            //std::vector<float> temp_delta;
             for (int j=0;j<l.batch;++j) {
-                temp_delta.push_back(l_delta[j*l.outputs+i]);
+                for (int p=0;p<l.enclave_layered_batch;++p) {
+                    temp_delta[j*l.enclave_layered_batch+p] = 
+                        l_delta[j*l.outputs + i*l.enclave_layered_batch + p];
+                }  
             }
             float *a = &temp_delta[0];
-            auto l_weights = l.weights->getItemsInRange(i*(l.inputs), (i+1)*l.inputs);
+            auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*(l.inputs), (i+1)*l.enclave_layered_batch*l.inputs);
             b = &l_weights[0];
             float* c = &net_delta[0];
-            gemm(0,0,m,n,1,1,a,1,b,n,1,c,n);
+            gemm(0,0,m,n,l.enclave_layered_batch,1,a,l.enclave_layered_batch,b,n,1,c,n);
+        }
+        if (r > 0) {
+            for (int j=0;j<l.batch;++j) {
+                for (int p=0;p<r;++p) {
+                    temp_delta[j*r+p] = 
+                        l_delta[j*l.outputs + q*l.enclave_layered_batch + p];
+                }  
+            }
+            float *a = &temp_delta[0];
+            auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*(l.inputs), q*l.enclave_layered_batch*l.inputs+r*l.inputs);
+            b = &l_weights[0];
+            float* c = &net_delta[0];
+            gemm(0,0,m,n,r,1,a,r,b,n,1,c,n);
         }
         //gemm(0,0,m,n,k,1,a,k,b,n,1,c,n);
         net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);

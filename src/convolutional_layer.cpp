@@ -204,11 +204,11 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   l.batch_normalize = batch_normalize;
 
   l.weights = (float *)calloc(c / groups * n * size * size, sizeof(float));
-  l.weight_updates =
+  if (global_training) l.weight_updates =
       (float *)calloc(c / groups * n * size * size, sizeof(float));
 
   l.biases = (float *)calloc(n, sizeof(float));
-  l.bias_updates = (float *)calloc(n, sizeof(float));
+  if (global_training) l.bias_updates = (float *)calloc(n, sizeof(float));
 
   l.nweights = c / groups * n * size * size;
   l.nbiases = n;
@@ -232,7 +232,7 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   l.inputs = l.w * l.h * l.c;
 
   l.output = (float *)calloc(l.batch * l.outputs, sizeof(float));
-  l.delta = (float *)calloc(l.batch * l.outputs, sizeof(float));
+  if (global_training) l.delta = (float *)calloc(l.batch * l.outputs, sizeof(float));
 
   l.forward = forward_convolutional_layer;
   l.backward = backward_convolutional_layer;
@@ -249,29 +249,36 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
 
   if (batch_normalize) {
     l.scales = (float *)calloc(n, sizeof(float));
-    l.scale_updates = (float *)calloc(n, sizeof(float));
-    for (i = 0; i < n; ++i) {
-      l.scales[i] = 1;
+    if (global_training) l.scale_updates = (float *)calloc(n, sizeof(float));
+    if (global_training)
+      for (i = 0; i < n; ++i) {
+        l.scales[i] = 1;
+      }
+
+    if (global_training) {
+      l.mean = (float *)calloc(n, sizeof(float));
+      l.variance = (float *)calloc(n, sizeof(float));
+
+      l.mean_delta = (float *)calloc(n, sizeof(float));
+      l.variance_delta = (float *)calloc(n, sizeof(float));
+
+      l.x = (float *)calloc(l.batch * l.outputs, sizeof(float));
+      l.x_norm = (float *)calloc(l.batch * l.outputs, sizeof(float));
     }
-
-    l.mean = (float *)calloc(n, sizeof(float));
-    l.variance = (float *)calloc(n, sizeof(float));
-
-    l.mean_delta = (float *)calloc(n, sizeof(float));
-    l.variance_delta = (float *)calloc(n, sizeof(float));
-
     l.rolling_mean = (float *)calloc(n, sizeof(float));
     l.rolling_variance = (float *)calloc(n, sizeof(float));
-    l.x = (float *)calloc(l.batch * l.outputs, sizeof(float));
-    l.x_norm = (float *)calloc(l.batch * l.outputs, sizeof(float));
+    
   }
-  if (adam) {
-    l.m = (float *)calloc(l.nweights, sizeof(float));
-    l.v = (float *)calloc(l.nweights, sizeof(float));
-    l.bias_m = (float *)calloc(n, sizeof(float));
-    l.scale_m = (float *)calloc(n, sizeof(float));
-    l.bias_v = (float *)calloc(n, sizeof(float));
-    l.scale_v = (float *)calloc(n, sizeof(float));
+  
+  if (global_training) {
+    if (adam) {
+      l.m = (float *)calloc(l.nweights, sizeof(float));
+      l.v = (float *)calloc(l.nweights, sizeof(float));
+      l.bias_m = (float *)calloc(n, sizeof(float));
+      l.scale_m = (float *)calloc(n, sizeof(float));
+      l.bias_v = (float *)calloc(n, sizeof(float));
+      l.scale_v = (float *)calloc(n, sizeof(float));
+    }
   }
 
 #ifdef GPU
@@ -681,12 +688,12 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   //l.weights = (float *)calloc(c / groups * n * size * size, sizeof(float));
   l.weights = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c / groups * n * size * size);
   //l.weight_updates = (float *)calloc(c / groups * n * size * size, sizeof(float));
-  l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c / groups * n * size * size);
+  if (global_training) l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c / groups * n * size * size);
 
   //l.biases = (float *)calloc(n, sizeof(float));
   l.biases = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
   //l.bias_updates = (float *)calloc(n, sizeof(float));
-  l.bias_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+  if (global_training) l.bias_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
 
   l.nweights = c / groups * n * size * size;
   l.nbiases = n;
@@ -721,7 +728,7 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   //l.output = (float *)calloc(l.batch * l.outputs, sizeof(float));
   l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
   //l.delta = (float *)calloc(l.batch * l.outputs, sizeof(float));
-  l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
+  if (global_training) l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
 
   l.forward = forward_convolutional_layer;
   l.backward = backward_convolutional_layer;
@@ -745,51 +752,73 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
     //l.scales = (float *)calloc(n, sizeof(float));
     l.scales = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
     //l.scale_updates = (float *)calloc(n, sizeof(float));
-    l.scale_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    if (global_training) l.scale_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
 
-    {
+    if (global_training) {
       auto scs = l.scales->getItemsInRange(0, l.scales->getBufferSize());
       for (i = 0; i < n; ++i)
         scs[i] = 1;
       l.scales->setItemsInRange(0, n,scs);
     }
 
-    //l.mean = (float *)calloc(n, sizeof(float));
-    l.mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
-    //l.variance = (float *)calloc(n, sizeof(float));
-    l.variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    if (global_training) {
+      //l.mean = (float *)calloc(n, sizeof(float));
+      l.mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+      //l.variance = (float *)calloc(n, sizeof(float));
+      l.variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
 
-    //l.mean_delta = (float *)calloc(n, sizeof(float));
-    l.mean_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
-    //l.variance_delta = (float *)calloc(n, sizeof(float));
-    l.variance_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+      //l.mean_delta = (float *)calloc(n, sizeof(float));
+      l.mean_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+      //l.variance_delta = (float *)calloc(n, sizeof(float));
+      l.variance_delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
 
+      //l.x = (float *)calloc(l.batch * l.outputs, sizeof(float));
+      l.x = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
+      //l.x_norm = (float *)calloc(l.batch * l.outputs, sizeof(float));
+      l.x_norm = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
+    }
     //l.rolling_mean = (float *)calloc(n, sizeof(float));
     l.rolling_mean = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
     //l.rolling_variance = (float *)calloc(n, sizeof(float));
     l.rolling_variance = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
-    //l.x = (float *)calloc(l.batch * l.outputs, sizeof(float));
-    l.x = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
-    //l.x_norm = (float *)calloc(l.batch * l.outputs, sizeof(float));
-    l.x_norm = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.batch * l.outputs);
+    
   }
-  if (adam) {
-    //l.m = (float *)calloc(l.nweights, sizeof(float));
-    l.m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.nweights);
-    //l.v = (float *)calloc(l.nweights, sizeof(float));
-    l.v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.nweights);
-    //l.bias_m = (float *)calloc(n, sizeof(float));
-    l.bias_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
-    //l.scale_m = (float *)calloc(n, sizeof(float));
-    l.scale_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
-    //l.bias_v = (float *)calloc(n, sizeof(float));
-    l.bias_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
-    //l.scale_v = (float *)calloc(n, sizeof(float));
-    l.scale_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+   if (global_training) {
+    if (adam) {
+      //l.m = (float *)calloc(l.nweights, sizeof(float));
+      l.m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.nweights);
+      //l.v = (float *)calloc(l.nweights, sizeof(float));
+      l.v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(l.nweights);
+      //l.bias_m = (float *)calloc(n, sizeof(float));
+      l.bias_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+      //l.scale_m = (float *)calloc(n, sizeof(float));
+      l.scale_m = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+      //l.bias_v = (float *)calloc(n, sizeof(float));
+      l.bias_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+      //l.scale_v = (float *)calloc(n, sizeof(float));
+      l.scale_v = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
+    }
   }
 
   l.workspace_size = get_workspace_size(l);
   l.activation = activation;
+
+  uint64_t consumed_space_wo_workspace_bytes = (l.inputs + l.outputs + l.nweights +l.nbiases)*sizeof(float);
+  l.enclave_layered_batch = (SGX_LAYERWISE_MAX_LAYER_SIZE - (consumed_space_wo_workspace_bytes));
+  if (l.enclave_layered_batch <=0) {
+      LOG_ERROR("remaining space is negative!!!!\n");
+      abort();
+  }
+  l.enclave_layered_batch = 
+      (l.enclave_layered_batch / (l.workspace_size / ((l.c/l.groups))));
+
+  if (l.enclave_layered_batch <= 0) {
+      LOG_ERROR("remaining space is not enough for even a single batch!!!!\n");
+      abort();
+  }
+  if (l.enclave_layered_batch > l.c / l.groups) {
+      l.enclave_layered_batch = l.c / l.groups;
+  }
 
   fprintf(stderr, "conv  %5d %2d x%2d /%2d  %4d x%4d x%4d   ->  %4d x%4d x%4d  %5.3f BFLOPs\n", n, size, size, stride, w, h, c, l.out_w, l.out_h, l.out_c, (2.0 * l.n * l.size*l.size*l.c/l.groups * l.out_h*l.out_w)/1000000000.);
 
@@ -806,6 +835,8 @@ void forward_convolutional_layer(convolutional_layer l, network net)
   //LOG_DEBUG("before forward ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),l_weights[237],l_weights[121])
 
   fill_cpu(l.outputs * l.batch, 0, &l_output[0], 1);
+  int q = (l.c/l.groups) / l.enclave_layered_batch;
+  int r = (l.c/l.groups) % l.enclave_layered_batch;
 
   if (l.xnor) {
     LOG_ERROR("XNOR feature not implemented!\n");
@@ -831,13 +862,19 @@ void forward_convolutional_layer(convolutional_layer l, network net)
           b = im;
           gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
       } else {
-          auto n_workspace = net.workspace->getItemsInRange(0, 1*l.out_h*l.out_w*l.size*l.size);
-          for (int chan = 0; chan < l.c / l.groups; chan++) {
-            std::memset(&n_workspace[0], 0, sizeof(float)*n_workspace.size());
+          //auto n_workspace = net.workspace->getItemsInRange(0, 1*l.out_h*l.out_w*l.size*l.size);
+          auto n_workspace = std::vector<float>(l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size, 0);
+          for (int chan = 0; chan < q; chan++) {
+            //std::memset(&n_workspace[0], 0, sizeof(float)*n_workspace.size());
             b = &n_workspace[0];
             //im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
-            im2col_cpu(im+(chan*l.h*l.w), 1, l.h, l.w, l.size, l.stride, l.pad, b);
-            gemm(0, 0, m, n, (l.size*l.size), 1, a+(chan*l.size*l.size), k, b, n, 1, c, n);  // k is changed
+            im2col_cpu(im+(chan*l.enclave_layered_batch*l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
+            gemm(0, 0, m, n, (l.enclave_layered_batch*l.size*l.size), 1, a+(chan*l.enclave_layered_batch*l.size*l.size), k, b, n, 1, c, n);  // k is changed
+          }
+          if (r > 0) {
+            b = &n_workspace[0];
+            im2col_cpu(im+(q*l.enclave_layered_batch*l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
+            gemm(0, 0, m, n, (r*l.size*l.size), 1, a+(q*l.enclave_layered_batch*l.size*l.size), k, b, n, 1, c, n);  // k is changed
           }
           //LOG_DEBUG("Base start index for C (output) is %d",(i * l.groups + j) * n * m)
           //gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
@@ -877,6 +914,9 @@ void backward_convolutional_layer(convolutional_layer l, network net)
     //auto net_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
 
+    int q = (l.c/l.groups) / l.enclave_layered_batch;
+    int r = (l.c/l.groups) % l.enclave_layered_batch;
+
     {
       auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
       gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
@@ -903,14 +943,20 @@ void backward_convolutional_layer(convolutional_layer l, network net)
                 b = im;
                 gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
             } else {
-                auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
-                for (int chan = 0; chan < l.c/l.groups;++chan) {
-                  std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
+                //auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
+                auto net_workspace = std::vector<float>(l.enclave_layered_batch*l.size*l.size*l.out_h*l.out_w,0);
+                for (int chan = 0; chan < q;++chan) {
+                  //std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
                   b = &net_workspace[0];
-                  im2col_cpu(im+chan*(l.h*l.w), 1, l.h, l.w, l.size, l.stride, l.pad, b);
+                  im2col_cpu(im+chan*l.enclave_layered_batch*(l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
                   //im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
-                  gemm(0,1,m,(l.size*l.size),k,1,a,k,b,k,1,c+(chan*l.size*l.size),n);
+                  gemm(0,1,m,(l.enclave_layered_batch*l.size*l.size),k,1,a,k,b,k,1,c+(chan*l.enclave_layered_batch*l.size*l.size),n);
                   //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+                }
+                if (r > 0) {
+                  b = &net_workspace[0];
+                  im2col_cpu(im+q*l.enclave_layered_batch*(l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
+                  gemm(0,1,m,(r*l.size*l.size),k,1,a,k,b,k,1,c+(q*l.enclave_layered_batch*l.size*l.size),n);
                 }
             }
             //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
@@ -926,16 +972,21 @@ void backward_convolutional_layer(convolutional_layer l, network net)
                     gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
                 }
                 else {
-                    auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
-                    for (int chan=0;chan < l.c/l.groups;chan++) {
-                        std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
+                    //auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
+                    auto net_workspace = std::vector<float>(l.enclave_layered_batch*l.size*l.size*l.out_h*l.out_w,0);
+                    for (int chan=0;chan < q;chan++) {
+                        //std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
                         c = &net_workspace[0];
-                        gemm(1,0,l.size*l.size,k,m,1,a+(chan*l.size*l.size),n,b,k,0,c,k);
-                        col2im_cpu(c, 1, l.h, l.w, l.size, l.stride, l.pad, imd+(chan*l.h*l.w));
+                        gemm(1,0,l.enclave_layered_batch*l.size*l.size,k,m,1,a+(chan*l.enclave_layered_batch*l.size*l.size),n,b,k,0,c,k);
+                        col2im_cpu(c, l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, imd+(chan*l.enclave_layered_batch*l.h*l.w));
+                    }
+                    if (r > 0) {
+                      c = &net_workspace[0];
+                      gemm(1,0,r*l.size*l.size,k,m,1,a+(q*l.enclave_layered_batch*l.size*l.size),n,b,k,0,c,k);
+                      col2im_cpu(c, r, l.h, l.w, l.size, l.stride, l.pad, imd+(q*l.enclave_layered_batch*l.h*l.w));
                     }
                     //gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
                     //col2im_cpu(&net_workspace[0], l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
-                    
                 }
             }
         }
