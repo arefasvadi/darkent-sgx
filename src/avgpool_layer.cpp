@@ -97,7 +97,7 @@ avgpool_layer make_avgpool_layer(int batch, int w, int h, int c)
     //l.output =  (float*)calloc(output_size, sizeof(float));
     l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(output_size);
     //l.delta =   (float*)calloc(output_size, sizeof(float));
-    l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(output_size);
+    if (global_training) l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(output_size);
     l.forward = forward_avgpool_layer;
     l.backward = backward_avgpool_layer;
     return l;

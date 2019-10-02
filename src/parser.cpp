@@ -356,7 +356,8 @@ layer parse_softmax(list *options, size_params params)
     return l;
 }
 
-/* int *parse_yolo_mask(char *a, int *num)
+#ifndef USE_SGX
+int *parse_yolo_mask(char *a, int *num)
 {
     int *mask = 0;
     if(a){
@@ -375,9 +376,8 @@ layer parse_softmax(list *options, size_params params)
         *num = n;
     }
     return mask;
-} */
+}
 
-#ifndef USE_SGX
 layer parse_yolo(list *options, size_params params)
 {
     int classes = option_find_int(options, "classes", 20);
@@ -1096,7 +1096,7 @@ network *parse_network_cfg(char *filename)
         if(gpu_index >= 0){
             net->workspace = cuda_make_array(0, (workspace_size-1)/sizeof(float)+1);
         }else {
-            net->workspace = calloc(1, workspace_size);
+            net->workspace = (float*)calloc(1, workspace_size);
         }
 #else
         #ifndef USE_SGX_LAYERWISE
@@ -1124,7 +1124,7 @@ list *read_cfg(char *filename)
     strip(line);
     switch(line[0]){
     case '[':
-      current = malloc(sizeof(section));
+      current = (section*)malloc(sizeof(section));
       list_insert(options, current);
       current->options = make_list();
       current->type = line;

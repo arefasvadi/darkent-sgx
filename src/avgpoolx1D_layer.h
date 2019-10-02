@@ -15,8 +15,8 @@ void forward_avgpoolx1D_layer(const avgpoolx1D_layer l, network net);
 void backward_avgpoolx1D_layer(const avgpoolx1D_layer l, network net);
 
 #ifdef GPU
-void forward_avgpool_layer_gpu(avgpool_layer l, network net);
-void backward_avgpool_layer_gpu(avgpool_layer l, network net);
+// void forward_avgpool_layer_gpu(avgpool_layer l, network net);
+// void backward_avgpool_layer_gpu(avgpool_layer l, network net);
 #endif
 
 #endif

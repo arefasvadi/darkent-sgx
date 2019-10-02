@@ -15,12 +15,14 @@ extern int gpu_index;
 #ifdef GPU
     #define BLOCK 512
 
-    #include "cuda_runtime.h"
-    #include "curand.h"
-    #include "cublas_v2.h"
+    #include <cuda.h>
+    #include <cuda_runtime.h>
+    #include <curand.h>
+    #include <cublas_v2.h>
+    #include <cuda_runtime_api.h>
 
     #ifdef CUDNN
-    #include "cudnn.h"
+    #include <cudnn.h>
     #endif
 #endif
 

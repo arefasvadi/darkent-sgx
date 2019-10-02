@@ -365,11 +365,15 @@ float train_network(network *net, data d)
   float sum = 0;
   
   for(i = 0; i < n; ++i){
-    auto net_input = net->input->getItemsInRange(0, net->input->getBufferSize());
-    auto net_truth = net->truth->getItemsInRange(0, net->truth->getBufferSize());
-    get_next_batch(d, batch, i*batch, &net_input[0], &net_truth[0]);
-    net->input->setItemsInRange(0, net->input->getBufferSize(),net_input);
-    net->truth->setItemsInRange(0, net->truth->getBufferSize(),net_truth);
+    
+    {
+        auto net_input = net->input->getItemsInRange(0, net->input->getBufferSize());
+        auto net_truth = net->truth->getItemsInRange(0, net->truth->getBufferSize());
+        get_next_batch(d, batch, i*batch, &net_input[0], &net_truth[0]);
+        net->truth->setItemsInRange(0, net->truth->getBufferSize(),net_truth);
+        net->input->setItemsInRange(0, net->input->getBufferSize(),net_input);
+    }
+    
     float err = train_network_datum(net);
     sum += err;
   }
@@ -478,7 +482,7 @@ int resize_network(network *net, int w, int h)
         }
     }else {
         free(net->workspace);
-        net->workspace = calloc(1, workspace_size);
+        net->workspace = (float*)calloc(1, workspace_size);
     }
 #else
     free(net->workspace);

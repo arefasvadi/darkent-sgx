@@ -15,8 +15,8 @@ void forward_maxpool1D_layer(const maxpool1D_layer l, network net);
 void backward_maxpool1D_layer(const maxpool1D_layer l, network net);
 
 #ifdef GPU
-void forward_maxpool_layer_gpu(maxpool_layer l, network net);
-void backward_maxpool_layer_gpu(maxpool_layer l, network net);
+// void forward_maxpool_layer_gpu(maxpool_layer l, network net);
+// void backward_maxpool_layer_gpu(maxpool_layer l, network net);
 #endif
 
 #endif

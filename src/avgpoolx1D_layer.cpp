@@ -26,11 +26,11 @@ avgpoolx1D_layer make_avgpoolx1D_layer(int batch, int h, int w, int c, int size,
     l.backward = backward_avgpoolx1D_layer;
     
     #ifdef GPU
-    error("avgpoolx1D has not implemented for gpu yet!")
-    l.forward_gpu = forward_avgpool_layer_gpu;
-    l.backward_gpu = backward_avgpool_layer_gpu;
-    l.output_gpu  = cuda_make_array(l.output, output_size);
-    l.delta_gpu   = cuda_make_array(l.delta, output_size);
+    error("avgpoolx1D has not implemented for gpu yet!");
+    // l.forward_gpu = forward_avgpool_layer_gpu;
+    // l.backward_gpu = backward_avgpool_layer_gpu;
+    // l.output_gpu  = cuda_make_array(l.output, output_size);
+    // l.delta_gpu   = cuda_make_array(l.delta, output_size);
     #endif
     fprintf(stderr, "avgx1D          %d x %d / %d  %4d x%4d x%4d   ->  %4d x%4d x%4d\n", size, 1, stride, w, h, c, l.out_w, l.out_h, l.out_c);
     return l;

@@ -275,9 +275,9 @@ convolutional1D_layer make_convolutional1D_layer(int batch, int h, int w, int c,
 
 #ifdef GPU
     error("conv1d GPU not implemented!");
-    l.forward_gpu = forward_convolutional_layer_gpu;
-    l.backward_gpu = backward_convolutional_layer_gpu;
-    l.update_gpu = update_convolutional_layer_gpu;
+    // l.forward_gpu = forward_convolutional_layer_gpu;
+    // l.backward_gpu = backward_convolutional_layer_gpu;
+    // l.update_gpu = update_convolutional_layer_gpu;
 
     if(gpu_index >= 0){
         if (adam) {
