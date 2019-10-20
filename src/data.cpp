@@ -362,7 +362,7 @@ box bound_image(image im)
             }
         }
     }
-    box b = {minx, miny, maxx-minx + 1, maxy-miny + 1};
+    box b = {(float)minx, (float)miny,(float) (maxx-minx + 1), (float)(maxy-miny + 1)};
     //printf("%f %f %f %f\n", b.x, b.y, b.w, b.h);
     return b;
 }

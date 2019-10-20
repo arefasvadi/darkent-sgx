@@ -80,13 +80,14 @@ int *read_map(char *filename)
 }
 void sorta_shuffle(void *arr, size_t n, size_t size, size_t sections)
 {
-  size_t i;
-  for(i = 0; i < sections; ++i){
-    size_t start = n*i/sections;
-    size_t end = n*(i+1)/sections;
-    size_t num = end-start;
-    shuffle(arr+(start*size), num, size);
-  }
+     assert(false); // "this function needs fixing! not safe\n"
+//   size_t i;
+//   for(i = 0; i < sections; ++i){
+//     size_t start = n*i/sections;
+//     size_t end = n*(i+1)/sections;
+//     size_t num = end-start;
+//     shuffle(arr+(start*size), num, size);
+//   }
 }
 #else
 #endif
@@ -94,14 +95,15 @@ void sorta_shuffle(void *arr, size_t n, size_t size, size_t sections)
 #ifndef USE_SGX
 void shuffle(void *arr, size_t n, size_t size)
 {
-  size_t i;
-  void *swp = calloc(1, size);
-  for(i = 0; i < n-1; ++i){
-    size_t j = i + rand()/(RAND_MAX / (n-i)+1);
-    memcpy(swp,          arr+(j*size), size);
-    memcpy(arr+(j*size), arr+(i*size), size);
-    memcpy(arr+(i*size), swp,          size);
-  }
+    assert(false); // "this function needs fixing! not safe\n"
+//   size_t i;
+//   void *swp = calloc(1, size);
+//   for(i = 0; i < n-1; ++i){
+//     size_t j = i + rand()/(RAND_MAX / (n-i)+1);
+//     memcpy(swp,          arr+(j*size), size); // NOLINT
+//     memcpy(arr+(j*size), arr+(i*size), size);   // NOLINT
+//     memcpy(arr+(i*size), swp,          size);   // NOLINT
+//   }
 }
 #else
 #endif
