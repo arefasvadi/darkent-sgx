@@ -85,7 +85,7 @@ void resize_maxpool_layer(maxpool_layer *l, int w, int h)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void forward_maxpool_layer(const maxpool_layer l, network net)
+void forward_maxpool_layer(maxpool_layer& l, network& net)
 {
     // TODO: Should be data oblivious
     int b,i,j,k,m,n;
@@ -125,7 +125,7 @@ void forward_maxpool_layer(const maxpool_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_maxpool_layer(const maxpool_layer l, network net)
+void backward_maxpool_layer(maxpool_layer& l, network& net)
 {
     int i;
     int h = l.out_h;
@@ -168,7 +168,7 @@ maxpool_layer make_maxpool_layer(int batch, int h, int w, int c, int size, int s
     return l;
 }
 
-void forward_maxpool_layer(const maxpool_layer l, network net)
+void forward_maxpool_layer(maxpool_layer& l, network& net)
 {
     // TODO: Should be data oblivious
     int b,i,j,k,m,n;
@@ -216,7 +216,7 @@ void forward_maxpool_layer(const maxpool_layer l, network net)
     l.indexes->setItemsInRange(0, l.indexes->getBufferSize(),l_indexes);
 }
 
-void backward_maxpool_layer(const maxpool_layer l, network net)
+void backward_maxpool_layer(maxpool_layer& l, network& net)
 {
     int i;
     int h = l.out_h;

@@ -63,13 +63,13 @@ void binarize_input(float *input, int n, int size, float *binary)
     }
 } */
 
-int convolutional1D_out_height(convolutional1D_layer l)
+int convolutional1D_out_height(const convolutional1D_layer& l)
 {
     //return (l.h + 2*l.pad - l.size) / l.stride + 1;
     return l.h;
 }
 
-int convolutional1D_out_width(convolutional1D_layer l)
+int convolutional1D_out_width(const convolutional1D_layer& l)
 {
     return (l.w + 2*l.pad - l.size) / l.stride + 1;
 }
@@ -437,7 +437,7 @@ void resize_convolutional1D_layer(convolutional1D_layer *l, int w, int h)
 } */
 
 #ifndef USE_SGX_LAYERWISE
-void forward_convolutional1D_layer(convolutional1D_layer l, network net)
+void forward_convolutional1D_layer(convolutional1D_layer &l, network &net)
 {
     int i, j;
 
@@ -485,7 +485,7 @@ void forward_convolutional1D_layer(convolutional1D_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_convolutional1D_layer(convolutional1D_layer l, network net)
+void backward_convolutional1D_layer(convolutional1D_layer &l, network &net)
 {
     int i, j;
     int m = l.n/l.groups;
@@ -538,7 +538,7 @@ void backward_convolutional1D_layer(convolutional1D_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void update_convolutional1D_layer(convolutional1D_layer l, update_args a)
+void update_convolutional1D_layer(convolutional1D_layer& l, update_args a)
 {
     float learning_rate = a.learning_rate*l.learning_rate_scale;
     float momentum = a.momentum;
@@ -777,7 +777,7 @@ convolutional1D_layer make_convolutional1D_layer(int batch, int h, int w, int c,
     return l;
 }
 
-void forward_convolutional1D_layer(convolutional1D_layer l, network net)
+void forward_convolutional1D_layer(convolutional1D_layer &l, network &net)
 {
     int i, j;
     auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
@@ -846,7 +846,7 @@ void forward_convolutional1D_layer(convolutional1D_layer l, network net)
     }
 }
 
-void backward_convolutional1D_layer(convolutional1D_layer l, network net)
+void backward_convolutional1D_layer(convolutional1D_layer &l, network &net)
 {
     int i, j;
     int m = l.n/l.groups;
@@ -943,7 +943,7 @@ void backward_convolutional1D_layer(convolutional1D_layer l, network net)
       net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
     }
 }
-void update_convolutional1D_layer(convolutional1D_layer l, update_args a)
+void update_convolutional1D_layer(convolutional1D_layer& l, update_args a)
 {
     float learning_rate = a.learning_rate*l.learning_rate_scale;
     float momentum = a.momentum;

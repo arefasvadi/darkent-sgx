@@ -42,7 +42,7 @@ void resize_avgpool_layer(avgpool_layer *l, int w, int h)
 }
 
 #ifndef USE_SGX_LAYERWISE
-void forward_avgpool_layer(const avgpool_layer l, network net)
+void forward_avgpool_layer(avgpool_layer& l, network& net)
 {
     int b,i,k;
 
@@ -61,7 +61,7 @@ void forward_avgpool_layer(const avgpool_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_avgpool_layer(const avgpool_layer l, network net)
+void backward_avgpool_layer(avgpool_layer& l, network& net)
 {
     int b,i,k;
 
@@ -103,7 +103,7 @@ avgpool_layer make_avgpool_layer(int batch, int w, int h, int c)
     return l;
 }
 
-void forward_avgpool_layer(const avgpool_layer l, network net)
+void forward_avgpool_layer(avgpool_layer& l, network& net)
 {
     int b,i,k;
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
@@ -122,7 +122,7 @@ void forward_avgpool_layer(const avgpool_layer l, network net)
     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
 }
 
-void backward_avgpool_layer(const avgpool_layer l, network net)
+void backward_avgpool_layer(avgpool_layer& l, network& net)
 {
     int b,i,k;
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());

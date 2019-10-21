@@ -1,6 +1,6 @@
 #include "blas.h"
 
-#include <math.h>
+#include <cmath>
 #include <assert.h>
 #include <float.h>
 #include <stdio.h>
@@ -152,7 +152,7 @@ void normalize_cpu(float *x, float *mean, float *variance, int batch, int filter
             for(i = 0; i < spatial; ++i){
                 int index = b*filters*spatial + f*spatial + i;
                 //x[index] = (x[index] - mean[f])/(sqrt(variance[f]) + .000001f);
-                x[index] = (x[index] - mean[f])/(sqrt(variance[f] + .001f));
+                x[index] = (x[index] - mean[f])/(std::sqrt(variance[f] + .001f));
             }
         }
     }
@@ -173,7 +173,7 @@ void mul_cpu(int N, float *X, int INCX, float *Y, int INCY)
 void pow_cpu(int N, float ALPHA, float *X, int INCX, float *Y, int INCY)
 {
     int i;
-    for(i = 0; i < N; ++i) Y[i*INCY] = pow(X[i*INCX], ALPHA);
+    for(i = 0; i < N; ++i) Y[i*INCY] = std::pow(X[i*INCX], ALPHA);
 }
 
 void axpy_cpu(int N, float ALPHA, float *X, int INCX, float *Y, int INCY)
@@ -241,7 +241,7 @@ void smooth_l1_cpu(int n, float *pred, float *truth, float *delta, float *error)
     int i;
     for(i = 0; i < n; ++i){
         float diff = truth[i] - pred[i];
-        float abs_val = fabs(diff);
+        float abs_val = std::fabs(diff);
         // TODO: Remember for making it memory oblivious
 
         if(abs_val < 1) {
@@ -261,7 +261,7 @@ void l1_cpu(int n, float *pred, float *truth, float *delta, float *error)
     int i;
     for(i = 0; i < n; ++i){
         float diff = truth[i] - pred[i];
-        error[i] = fabs(diff);
+        error[i] = std::fabs(diff);
         // TODO: Remember for making it memory oblivious
         delta[i] = diff > 0 ? 1 : -1;
     }
@@ -274,7 +274,7 @@ void softmax_x_ent_cpu(int n, float *pred, float *truth, float *delta, float *er
         float t = truth[i];
         float p = pred[i];
         // TODO: Remember for making it memory oblivious
-        error[i] = (t) ? -log(p) : 0;
+        error[i] = (t) ? -std::log(p) : 0;
         delta[i] = t-p;
     }
 }
@@ -285,7 +285,7 @@ void logistic_x_ent_cpu(int n, float *pred, float *truth, float *delta, float *e
     for(i = 0; i < n; ++i){
         float t = truth[i];
         float p = pred[i];
-        error[i] = -t*log(p) - (1-t)*log(1-p);
+        error[i] = -t*std::log(p) - (1-t)*std::log(1-p);
         delta[i] = t-p;
     }
 }
@@ -318,7 +318,7 @@ void softmax(float *input, int n, float temp, int stride, float *output)
         if(input[i*stride] > largest) largest = input[i*stride];
     }
     for(i = 0; i < n; ++i){
-        float e = exp(input[i*stride]/temp - largest/temp);
+        float e = std::exp(input[i*stride]/temp - largest/temp);
         sum += e;
         output[i*stride] = e;
     }

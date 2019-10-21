@@ -40,7 +40,7 @@ void resize_dropout_layer(dropout_layer *l, int inputs)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void forward_dropout_layer(dropout_layer l, network net)
+void forward_dropout_layer(dropout_layer& l, network& net)
 {
     int i;
     if (!net.train) return;
@@ -54,7 +54,7 @@ void forward_dropout_layer(dropout_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_dropout_layer(dropout_layer l, network net)
+void backward_dropout_layer(dropout_layer& l, network& net)
 {
     int i;
     if(!net.delta) return;
@@ -84,7 +84,7 @@ dropout_layer make_dropout_layer(int batch, int inputs, float probability)
     return l;
 }
 
-void forward_dropout_layer(dropout_layer l, network net)
+void forward_dropout_layer(dropout_layer& l, network& net)
 {
     int i;
     if (!net.train) return;
@@ -100,7 +100,7 @@ void forward_dropout_layer(dropout_layer l, network net)
     net.input->setItemsInRange(0, net.input->getBufferSize(),net_input);
 }
 
-void backward_dropout_layer(dropout_layer l, network net)
+void backward_dropout_layer(dropout_layer& l, network& net)
 {
     int i;
     if(!net.delta) return;

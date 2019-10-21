@@ -137,7 +137,7 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void update_connected_layer(layer l, update_args a)
+void update_connected_layer(layer& l, update_args a)
 {
     float learning_rate = a.learning_rate*l.learning_rate_scale;
     float momentum = a.momentum;
@@ -158,7 +158,7 @@ void update_connected_layer(layer l, update_args a)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void forward_connected_layer(layer l, network net)
+void forward_connected_layer(layer& l, network& net)
 {
     fill_cpu(l.outputs*l.batch, 0, l.output, 1);
     int m = l.batch;
@@ -178,7 +178,7 @@ void forward_connected_layer(layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_connected_layer(layer l, network net)
+void backward_connected_layer(layer& l, network& net)
 {
     gradient_array(l.output, l.outputs*l.batch, l.activation, l.delta);
 
@@ -479,7 +479,7 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
     return l;
 }
 
-void update_connected_layer(layer l, update_args a)
+void update_connected_layer(layer& l, update_args a)
 {
     float learning_rate = a.learning_rate*l.learning_rate_scale;
     float momentum = a.momentum;
@@ -531,7 +531,7 @@ void update_connected_layer(layer l, update_args a)
     }
 }
 
-void forward_connected_layer(layer l, network net)
+void forward_connected_layer(layer& l, network& net)
 {
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     fill_cpu(l.outputs*l.batch, 0, &l_output[0], 1);
@@ -602,7 +602,7 @@ void forward_connected_layer(layer l, network net)
     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
 }
 
-void backward_connected_layer(layer l, network net)
+void backward_connected_layer(layer& l, network& net)
 {
     
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());

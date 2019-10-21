@@ -33,7 +33,7 @@ void binarize_weights(float *weights, int n, int size, float *binary)
     for(f = 0; f < n; ++f){
         float mean = 0;
         for(i = 0; i < size; ++i){
-            mean += fabs(weights[f*size + i]);
+            mean += std::fabs(weights[f*size + i]);
         }
         mean = mean / size;
         for(i = 0; i < size; ++i){
@@ -56,7 +56,7 @@ void binarize_input(float *input, int n, int size, float *binary)
     for(s = 0; s < size; ++s){
         float mean = 0;
         for(i = 0; i < n; ++i){
-            mean += fabs(input[i*size + s]);
+            mean += std::fabs(input[i*size + s]);
         }
         mean = mean / n;
         for(i = 0; i < n; ++i){
@@ -65,25 +65,25 @@ void binarize_input(float *input, int n, int size, float *binary)
     }
 }
 
-int convolutional_out_height(convolutional_layer l)
+int convolutional_out_height(const convolutional_layer& l)
 {
     return (l.h + 2*l.pad - l.size) / l.stride + 1;
 }
 
-int convolutional_out_width(convolutional_layer l)
+int convolutional_out_width(const convolutional_layer& l)
 {
     return (l.w + 2*l.pad - l.size) / l.stride + 1;
 }
 
 #ifndef USE_SGX_LAYERWISE
-image get_convolutional_image(convolutional_layer l)
+image get_convolutional_image(const convolutional_layer& l)
 {
     return float_to_image(l.out_w,l.out_h,l.out_c,l.output);
 }
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-image get_convolutional_delta(convolutional_layer l)
+image get_convolutional_delta(const convolutional_layer& l)
 {
     return float_to_image(l.out_w,l.out_h,l.out_c,l.delta);
 }
@@ -470,7 +470,7 @@ void backward_bias(float *bias_updates, float *delta, int batch, int n, int size
 }
 
 #ifndef USE_SGX_LAYERWISE
-void forward_convolutional_layer(convolutional_layer l, network net)
+void forward_convolutional_layer(convolutional_layer& l, network& net)
 {
   //LOG_DEBUG("before forward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
   int i, j;
@@ -520,7 +520,7 @@ void forward_convolutional_layer(convolutional_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_convolutional_layer(convolutional_layer l, network net)
+void backward_convolutional_layer(convolutional_layer& l, network& net)
 {
     //LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("before backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
@@ -577,7 +577,7 @@ void backward_convolutional_layer(convolutional_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void update_convolutional_layer(convolutional_layer l, update_args a)
+void update_convolutional_layer(convolutional_layer& l, update_args a)
 {
     
     float learning_rate = a.learning_rate*l.learning_rate_scale;
@@ -606,7 +606,7 @@ void update_convolutional_layer(convolutional_layer l, update_args a)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-image get_convolutional_weight(convolutional_layer l, int i)
+image get_convolutional_weight(const convolutional_layer& l, int i)
 {
     int h = l.size;
     int w = l.size;
@@ -616,7 +616,7 @@ image get_convolutional_weight(convolutional_layer l, int i)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void rgbgr_weights(convolutional_layer l)
+void rgbgr_weights(const convolutional_layer& l)
 {
     int i;
     for(i = 0; i < l.n; ++i){
@@ -825,7 +825,7 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
     return l;
 }
 
-void forward_convolutional_layer(convolutional_layer l, network net)
+void forward_convolutional_layer(convolutional_layer& l, network& net)
 {
   int i, j;
   auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
@@ -898,7 +898,7 @@ void forward_convolutional_layer(convolutional_layer l, network net)
     swap_binary(&l); */
 }
 
-void backward_convolutional_layer(convolutional_layer l, network net)
+void backward_convolutional_layer(convolutional_layer& l, network& net)
 {
     //LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("before backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
@@ -1000,7 +1000,7 @@ void backward_convolutional_layer(convolutional_layer l, network net)
     //LOG_DEBUG("after backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
 }
 
-void update_convolutional_layer(convolutional_layer l, update_args a)
+void update_convolutional_layer(convolutional_layer& l, update_args a)
 {
     
     float learning_rate = a.learning_rate*l.learning_rate_scale;

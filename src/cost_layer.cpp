@@ -86,7 +86,7 @@ void resize_cost_layer(cost_layer *l, int inputs)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void forward_cost_layer(cost_layer l, network net)
+void forward_cost_layer(cost_layer& l, network& net)
 {
     if (!net.truth) return;
     if(l.cost_type == MASKED){
@@ -107,7 +107,7 @@ void forward_cost_layer(cost_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_cost_layer(const cost_layer l, network net)
+void backward_cost_layer(cost_layer& l, network& net)
 {
     axpy_cpu(l.batch*l.inputs, l.scale, l.delta, 1, net.delta, 1);
 }
@@ -207,7 +207,7 @@ cost_layer make_cost_layer(int batch, int inputs, COST_TYPE cost_type, float sca
     return l;
 }
 
-void forward_cost_layer(cost_layer l, network net)
+void forward_cost_layer(cost_layer& l, network& net)
 {
     if (!net.truth) return;
     if(l.cost_type == MASKED){
@@ -235,7 +235,7 @@ void forward_cost_layer(cost_layer l, network net)
     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
 }
 
-void backward_cost_layer(const cost_layer l, network net)
+void backward_cost_layer(cost_layer& l, network& net)
 {
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
     auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());

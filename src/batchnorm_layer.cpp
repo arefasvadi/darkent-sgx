@@ -101,7 +101,7 @@ void mean_delta_cpu(float *delta, float *variance, int batch, int filters, int s
                 mean_delta[i] += delta[index];
             }
         }
-        mean_delta[i] *= (-1./sqrt(variance[i] + .00001f));
+        mean_delta[i] *= (-1./std::sqrt(variance[i] + .00001f));
     }
 }
 void  variance_delta_cpu(float *x, float *delta, float *mean, float *variance, int batch, int filters, int spatial, float *variance_delta)
@@ -116,7 +116,7 @@ void  variance_delta_cpu(float *x, float *delta, float *mean, float *variance, i
                 variance_delta[i] += delta[index]*(x[index] - mean[i]);
             }
         }
-        variance_delta[i] *= -.5 * pow(variance[i] + .00001f, (float)(-3./2.));
+        variance_delta[i] *= -.5 * std::pow(variance[i] + .00001f, (float)(-3./2.));
     }
 }
 void normalize_delta_cpu(float *x, float *mean, float *variance, float *mean_delta, float *variance_delta, int batch, int filters, int spatial, float *delta)
@@ -126,7 +126,7 @@ void normalize_delta_cpu(float *x, float *mean, float *variance, float *mean_del
         for(f = 0; f < filters; ++f){
             for(k = 0; k < spatial; ++k){
                 int index = j*filters*spatial + f*spatial + k;
-                delta[index] = delta[index] * 1./(sqrt(variance[f] + .00001f)) + variance_delta[f] * 2. * (x[index] - mean[f]) / (spatial * batch) + mean_delta[f]/(spatial*batch);
+                delta[index] = delta[index] * 1./(std::sqrt(variance[f] + .00001f)) + variance_delta[f] * 2. * (x[index] - mean[f]) / (spatial * batch) + mean_delta[f]/(spatial*batch);
             }
         }
     }
@@ -141,7 +141,7 @@ void resize_batchnorm_layer(layer *layer, int w, int h)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void forward_batchnorm_layer(layer l, network net)
+void forward_batchnorm_layer(layer& l, network& net)
 {
     if(l.type == BATCHNORM) copy_cpu(l.outputs*l.batch, net.input, 1, l.output, 1);
     if(net.train){
@@ -165,7 +165,7 @@ void forward_batchnorm_layer(layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_batchnorm_layer(layer l, network net)
+void backward_batchnorm_layer(layer& l, network& net)
 {
     if(!net.train){
         l.mean = l.rolling_mean;
@@ -238,7 +238,7 @@ layer make_batchnorm_layer(int batch, int w, int h, int c)
     return l;
 }
 
-void forward_batchnorm_layer(layer l, network net)
+void forward_batchnorm_layer(layer& l, network& net)
 {
     auto l_out = l.output->getItemsInRange(0, l.output->getBufferSize());
     auto l_rolling_mean = l.rolling_mean->getItemsInRange(0,l.rolling_mean->getBufferSize());
@@ -281,7 +281,7 @@ void forward_batchnorm_layer(layer l, network net)
     l.output->setItemsInRange(0, l.output->getBufferSize(), l_out);
 }
 
-void backward_batchnorm_layer(layer l, network net)
+void backward_batchnorm_layer(layer& l, network& net)
 {
     if(!net.train){
         l.mean = l.rolling_mean;

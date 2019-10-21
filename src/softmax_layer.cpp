@@ -40,7 +40,7 @@ softmax_layer make_softmax_layer(int batch, int inputs, int groups)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void forward_softmax_layer(const softmax_layer l, network net)
+void forward_softmax_layer(softmax_layer& l, network& net)
 {
     if(l.softmax_tree){
         int i;
@@ -71,7 +71,7 @@ void forward_softmax_layer(const softmax_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_softmax_layer(const softmax_layer l, network net)
+void backward_softmax_layer(softmax_layer& l, network& net)
 {
     axpy_cpu(l.inputs*l.batch, 1, l.delta, 1, net.delta, 1);
 }
@@ -146,7 +146,7 @@ softmax_layer make_softmax_layer(int batch, int inputs, int groups)
     return l;
 }
 
-void forward_softmax_layer(const softmax_layer l, network net)
+void forward_softmax_layer(softmax_layer& l, network& net)
 {
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
@@ -184,7 +184,7 @@ void forward_softmax_layer(const softmax_layer l, network net)
     l.loss->setItemsInRange(0, l.loss->getBufferSize(),l_loss);
 }
 
-void backward_softmax_layer(const softmax_layer l, network net)
+void backward_softmax_layer(softmax_layer& l, network& net)
 {
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
     auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());

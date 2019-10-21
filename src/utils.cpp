@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
+#include <cmath>
 #include <assert.h>
 #include <unistd.h>
 #include <float.h>
@@ -571,7 +571,7 @@ float dist_array(float *a, float *b, int n, int sub)
     int i;
     float sum = 0;
     for(i = 0; i < n; i += sub) sum += pow(a[i]-b[i], 2);
-    return sqrt(sum);
+    return std::sqrt(sum);
 }
 
 float mse_array(float *a, int n)
@@ -579,19 +579,19 @@ float mse_array(float *a, int n)
     int i;
     float sum = 0;
     for(i = 0; i < n; ++i) sum += a[i]*a[i];
-    return sqrt(sum/n);
+    return std::sqrt(sum/n);
 }
 
 void normalize_array(float *a, int n)
 {
     int i;
     float mu = mean_array(a,n);
-    float sigma = sqrt(variance_array(a,n));
+    float sigma = std::sqrt(variance_array(a,n));
     for(i = 0; i < n; ++i){
         a[i] = (a[i] - mu)/sigma;
     }
     mu = mean_array(a,n);
-    sigma = sqrt(variance_array(a,n));
+    sigma = std::sqrt(variance_array(a,n));
 }
 
 void translate_array(float *a, int n, float s)
@@ -609,7 +609,7 @@ float mag_array(float *a, int n)
     for(i = 0; i < n; ++i){
         sum += a[i]*a[i];   
     }
-    return sqrt(sum);
+    return std::sqrt(sum);
 }
 
 void scale_array(float *a, int n, float s)

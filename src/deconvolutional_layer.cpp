@@ -222,7 +222,7 @@ void resize_deconvolutional_layer(layer *l, int h, int w)
     l->workspace_size = get_workspace_size(*l);
 }
 
-void forward_deconvolutional_layer(const layer l, network net)
+void forward_deconvolutional_layer(const layer& l, const network& net)
 {
     int i;
 
@@ -249,7 +249,7 @@ void forward_deconvolutional_layer(const layer l, network net)
     activate_array(l.output, l.batch*l.n*l.out_w*l.out_h, l.activation);
 }
 
-void backward_deconvolutional_layer(layer l, network net)
+void backward_deconvolutional_layer(const layer &l, const network& net)
 {
     int i;
 
@@ -290,7 +290,7 @@ void backward_deconvolutional_layer(layer l, network net)
     }
 }
 
-void update_deconvolutional_layer(layer l, update_args a)
+void update_deconvolutional_layer(const layer &l, update_args a)
 {
     float learning_rate = a.learning_rate*l.learning_rate_scale;
     float momentum = a.momentum;

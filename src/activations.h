@@ -2,7 +2,7 @@
 #define ACTIVATIONS_H
 #include "darknet.h"
 #include "cuda.h"
-#include "math.h"
+#include <cmath>
 
 ACTIVATION get_activation(char *s);
 
@@ -18,9 +18,9 @@ void gradient_array_gpu(float *x, int n, ACTIVATION a, float *delta);
 
 static inline float stair_activate(float x)
 {
-    int n = floor(x);
-    if (n%2 == 0) return floor(x/2.);
-    else return (x - n) + floor(x/2.);
+    int n = std::floor(x);
+    if (n%2 == 0) return std::floor(x/2.);
+    else return (x - n) + std::floor(x/2.);
 }
 static inline float hardtan_activate(float x)
 {
@@ -29,15 +29,15 @@ static inline float hardtan_activate(float x)
     return x;
 }
 static inline float linear_activate(float x){return x;}
-static inline float logistic_activate(float x){return 1./(1. + exp(-x));}
-static inline float loggy_activate(float x){return 2./(1. + exp(-x)) - 1;}
+static inline float logistic_activate(float x){return 1./(1. + std::exp(-x));}
+static inline float loggy_activate(float x){return 2./(1. + std::exp(-x)) - 1;}
 static inline float relu_activate(float x){return x*(x>0);}
-static inline float elu_activate(float x){return (x >= 0)*x + (x < 0)*(exp(x)-1);}
-static inline float selu_activate(float x){return (x >= 0)*1.0507*x + (x < 0)*1.0507*1.6732*(exp(x)-1);}
+static inline float elu_activate(float x){return (x >= 0)*x + (x < 0)*(std::exp(x)-1);}
+static inline float selu_activate(float x){return (x >= 0)*1.0507*x + (x < 0)*1.0507*1.6732*(std::exp(x)-1);}
 static inline float relie_activate(float x){return (x>0) ? x : .01*x;}
 static inline float ramp_activate(float x){return x*(x>0)+.1*x;}
 static inline float leaky_activate(float x){return (x>0) ? x : .1*x;}
-static inline float tanh_activate(float x){return (exp(2*x)-1)/(exp(2*x)+1);}
+static inline float tanh_activate(float x){return (std::exp(2*x)-1)/(std::exp(2*x)+1);}
 static inline float plse_activate(float x)
 {
     if(x < -4) return .01 * (x + 4);
@@ -71,7 +71,7 @@ static inline float loggy_gradient(float x)
 }
 static inline float stair_gradient(float x)
 {
-    if (floor(x) == x) return 0;
+    if (std::floor(x) == x) return 0;
     return 1;
 }
 static inline float relu_gradient(float x){return (x>0);}

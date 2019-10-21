@@ -79,7 +79,7 @@ maxpool1D_layer make_maxpool1D_layer(int batch, int h, int w, int c, int size, i
 } */
 
 #ifndef USE_SGX_LAYERWISE
-void forward_maxpool1D_layer(const maxpool1D_layer l, network net)
+void forward_maxpool1D_layer(maxpool1D_layer& l, network& net)
 {
     int b,i,j,k,m,n;
     int w_offset = -l.pad/2;
@@ -119,7 +119,7 @@ void forward_maxpool1D_layer(const maxpool1D_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_maxpool1D_layer(const maxpool1D_layer l, network net)
+void backward_maxpool1D_layer(maxpool1D_layer& l, network& net)
 {
     int i;
     int h = l.out_h;
@@ -161,7 +161,7 @@ maxpool1D_layer make_maxpool1D_layer(int batch, int h, int w, int c, int size, i
     return l;
 }
 
-void forward_maxpool1D_layer(const maxpool1D_layer l, network net)
+void forward_maxpool1D_layer(maxpool1D_layer& l, network& net)
 {
     int b,i,j,k,m,n;
     int w_offset = -l.pad/2;
@@ -205,7 +205,7 @@ void forward_maxpool1D_layer(const maxpool1D_layer l, network net)
     l.indexes->setItemsInRange(0, l.indexes->getBufferSize(),l_indexes);
 }
 
-void backward_maxpool1D_layer(const maxpool1D_layer l, network net)
+void backward_maxpool1D_layer(maxpool1D_layer& l, network& net)
 {
     int i;
     int h = l.out_h;

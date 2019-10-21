@@ -29,23 +29,23 @@ typedef layer convolutional1D_layer;
 
 convolutional1D_layer make_convolutional1D_layer(int batch, int h, int w, int c, int n, int groups, int size, int stride, int padding, ACTIVATION activation, int batch_normalize, int binary, int xnor, int adam);
 void resize_convolutional1D_layer(convolutional1D_layer *layer, int w, int h);
-void forward_convolutional1D_layer(const convolutional1D_layer layer, network net);
-void update_convolutional1D_layer(convolutional1D_layer layer, update_args a);
+void forward_convolutional1D_layer(convolutional1D_layer &layer, network &net);
+void update_convolutional1D_layer(convolutional1D_layer& layer, update_args a);
 image *visualize_convolutional1D_layer(convolutional1D_layer layer, char *window, image *prev_weights);
 void binarize_weights(float *weights, int n, int size, float *binary);
 //void swap_binary(convolutional1D_layer *l);
 //void binarize_weights2(float *weights, int n, int size, char *binary, float *scales);
 
-void backward_convolutional1D_layer(convolutional1D_layer layer, network net);
+void backward_convolutional1D_layer(convolutional1D_layer&, network& net);
 
 void add_bias(float *output, float *biases, int batch, int n, int size);
 void backward_bias(float *bias_updates, float *delta, int batch, int n, int size);
 
-image get_convolutional1D_image(convolutional1D_layer layer);
-image get_convolutional1D_delta(convolutional1D_layer layer);
-image get_convolutional1D_weight(convolutional1D_layer layer, int i);
+image get_convolutional1D_image(const convolutional1D_layer& layer);
+image get_convolutional1D_delta(const convolutional1D_layer& layer);
+image get_convolutional1D_weight(const convolutional1D_layer& layer, int i);
 
-int convolutional1D_out_height(convolutional1D_layer layer);
-int convolutional1D_out_width(convolutional1D_layer layer);
+int convolutional1D_out_height(const convolutional1D_layer& layer);
+int convolutional1D_out_width(const convolutional1D_layer& layer);
 
 #endif

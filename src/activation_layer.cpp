@@ -36,13 +36,13 @@ layer make_activation_layer(int batch, int inputs, ACTIVATION activation)
     return l;
 }
 
-void forward_activation_layer(layer l, network net)
+void forward_activation_layer(layer& l, network& net)
 {
     copy_cpu(l.outputs*l.batch, net.input, 1, l.output, 1);
     activate_array(l.output, l.outputs*l.batch, l.activation);
 }
 
-void backward_activation_layer(layer l, network net)
+void backward_activation_layer(layer& l, network& net)
 {
     gradient_array(l.output, l.outputs*l.batch, l.activation, l.delta);
     copy_cpu(l.outputs*l.batch, l.delta, 1, net.delta, 1);
@@ -86,7 +86,7 @@ layer make_activation_layer(int batch, int inputs, ACTIVATION activation)
     return l;
 }
 
-void forward_activation_layer(layer l, network net)
+void forward_activation_layer(layer& l, network& net)
 {
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
@@ -97,7 +97,7 @@ void forward_activation_layer(layer l, network net)
 
 }
 
-void backward_activation_layer(layer l, network net)
+void backward_activation_layer(layer& l, network& net)
 {
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());

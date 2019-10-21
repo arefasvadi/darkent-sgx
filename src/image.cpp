@@ -3,7 +3,7 @@
 #include "blas.h"
 #include "cuda.h"
 #include <stdio.h>
-#include <math.h>
+#include <cmath>
 
 #ifndef USE_SGX
 
@@ -21,8 +21,8 @@ float colors[6][3] = { {1,0,1}, {0,0,1},{0,1,1},{0,1,0},{1,1,0},{1,0,0} };
 float get_color(int c, int x, int max)
 {
     float ratio = ((float)x/max)*5;
-    int i = floor(ratio);
-    int j = ceil(ratio);
+    int i = std::floor(ratio);
+    int j = std::ceil(ratio);
     ratio -= i;
     float r = (1-ratio) * colors[i][c] + ratio*colors[j][c];
     //printf("%f\n", r);
@@ -382,7 +382,7 @@ image image_distance(image a, image b)
         }
     }
     for(j = 0; j < a.h*a.w; ++j){
-        dist.data[j] = sqrt(dist.data[j]);
+        dist.data[j] = std::sqrt(dist.data[j]);
     }
     return dist;
 }
@@ -822,8 +822,8 @@ image rotate_crop_image(image im, float rad, float s, int w, int h, float dx, fl
     for(c = 0; c < im.c; ++c){
         for(y = 0; y < h; ++y){
             for(x = 0; x < w; ++x){
-                float rx = cos(rad)*((x - w/2.)/s*aspect + dx/s*aspect) - sin(rad)*((y - h/2.)/s + dy/s) + cx;
-                float ry = sin(rad)*((x - w/2.)/s*aspect + dx/s*aspect) + cos(rad)*((y - h/2.)/s + dy/s) + cy;
+                float rx = std::cos(rad)*((x - w/2.)/s*aspect + dx/s*aspect) - std::sin(rad)*((y - h/2.)/s + dy/s) + cx;
+                float ry = std::sin(rad)*((x - w/2.)/s*aspect + dx/s*aspect) + std::cos(rad)*((y - h/2.)/s + dy/s) + cy;
                 float val = bilinear_interpolate(im, rx, ry, c);
                 set_pixel(rot, x, y, c, val);
             }
@@ -841,8 +841,8 @@ image rotate_image(image im, float rad)
     for(c = 0; c < im.c; ++c){
         for(y = 0; y < im.h; ++y){
             for(x = 0; x < im.w; ++x){
-                float rx = cos(rad)*(x-cx) - sin(rad)*(y-cy) + cx;
-                float ry = sin(rad)*(x-cx) + cos(rad)*(y-cy) + cy;
+                float rx = std::cos(rad)*(x-cx) - std::sin(rad)*(y-cy) + cx;
+                float ry = std::sin(rad)*(x-cx) + std::cos(rad)*(y-cy) + cy;
                 float val = bilinear_interpolate(im, rx, ry, c);
                 set_pixel(rot, x, y, c, val);
             }
@@ -1188,7 +1188,7 @@ void hsv_to_rgb(image im)
             if (s == 0) {
                 r = g = b = v;
             } else {
-                int index = floor(h);
+                int index = std::floor(h);
                 f = h - index;
                 p = v*(1-s);
                 q = v*(1-s*f);

@@ -66,7 +66,7 @@ void resize_avgpoolx_layer(avgpoolx_layer *l, int w, int h)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void forward_avgpoolx_layer(const avgpoolx_layer l, network net)
+void forward_avgpoolx_layer(avgpoolx_layer& l, network& net)
 {
     /* int b,i,k;
 
@@ -116,7 +116,7 @@ void forward_avgpoolx_layer(const avgpoolx_layer l, network net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_avgpoolx_layer(const avgpoolx_layer l, network net)
+void backward_avgpoolx_layer(avgpoolx_layer& l, network& net)
 {
     /* int b,i,k;
 
@@ -192,7 +192,7 @@ avgpoolx_layer make_avgpoolx_layer(int batch, int h, int w, int c, int size, int
     return l;
 }
 
-void forward_avgpoolx_layer(const avgpoolx_layer l, network net)
+void forward_avgpoolx_layer(avgpoolx_layer& l, network& net)
 {
     int b,i,j,k,m,n;
     int w_offset = -l.pad/2;
@@ -233,7 +233,7 @@ void forward_avgpoolx_layer(const avgpoolx_layer l, network net)
     l.output->setItemsInRange(0, l.output->getBufferSize(), l_output);
 }
 
-void backward_avgpoolx_layer(const avgpoolx_layer l, network net)
+void backward_avgpoolx_layer(avgpoolx_layer& l, network& net)
 {
     int b,i,j,k,m,n;
     int w_offset = -l.pad/2;

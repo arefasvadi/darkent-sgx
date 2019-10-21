@@ -94,7 +94,7 @@ float get_current_rate(network *net)
     size_t batch_num = get_current_batch(net);
     int i;
     float rate;
-    if (batch_num < net->burn_in) return net->learning_rate * pow((float)batch_num / net->burn_in, net->power);
+    if (batch_num < net->burn_in) return net->learning_rate * std::pow((float)batch_num / net->burn_in, net->power);
     switch (net->policy) {
         case CONSTANT:
             return net->learning_rate;
@@ -108,16 +108,16 @@ float get_current_rate(network *net)
             }
             return rate;
         case EXP:
-            return net->learning_rate * pow(net->gamma, batch_num);
+            return net->learning_rate * std::pow(net->gamma, batch_num);
         case POLY:
-            return net->learning_rate * pow(1 - (float)batch_num / net->max_batches, net->power);
+            return net->learning_rate * std::pow(1 - (float)batch_num / net->max_batches, net->power);
 #ifndef USE_SGX
         case RANDOM:
             return net->learning_rate * pow(rand_uniform(0,1), net->power);
 #else
 #endif
         case SIG:
-            return net->learning_rate * (1./(1.+exp(net->gamma*(batch_num - net->step))));
+            return net->learning_rate * (1./(1.+std::exp(net->gamma*(batch_num - net->step))));
         default:
 #ifndef USE_SGX
             fprintf(stderr, "Policy is weird!\n");
