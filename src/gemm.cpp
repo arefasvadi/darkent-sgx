@@ -157,7 +157,7 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
     //LOG_DEBUG("TA:%d, TB:%d, M:%d, N:%d, K:%d, lda:%d, ldb:%d, ldc:%d\n",TA,TB,M,N,K,lda,ldb,ldc)
     //LOG_DEBUG("indexes in range [%d,%d] will be used\n",0,N-1+(M-1)*ldc);
     if (BETA != 1) {
-        #if defined(USE_SGX) && defined (USE_GEMM_THREADING)
+        #if defined(USE_SGX) && defined (USE_GEMM_THREADING_SGX)
         sgx_status_t res = ocall_handle_gemm_cpu_first_mult(M, N, BETA,ldc,(size_t) C);
         CHECK_SGX_SUCCESS(res, "function ocall_handle_gemm_cpu_first_mult caused problem!")
         #else
@@ -168,7 +168,7 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
         }
         #endif
     }
-    #if defined(USE_SGX) && defined (USE_GEMM_THREADING)
+    #if defined(USE_SGX) && defined (USE_GEMM_THREADING_SGX)
     sgx_status_t res = ocall_handle_gemm_all(TA, TB, M, N, K, ALPHA, (size_t)A, lda, 
         (size_t)B, ldb, (size_t)C,ldc);
     CHECK_SGX_SUCCESS(res, "function ocall_handle_gemm_cpu_all caused problem!")
