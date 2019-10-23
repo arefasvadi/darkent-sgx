@@ -563,11 +563,11 @@ void top_predictions(network *net, int k, int *index)
 #endif
 
 #ifdef USE_SGX_LAYERWISE
-std::vector<float> network_predict(network *net, float *input)
+std::unique_ptr<float[]> network_predict(network *net, float *input)
 {
     network orig = *net;
     auto net_input = net->input->getItemsInRange(0, net->input->getBufferSize());
-    for (int i=0;i<net_input.size();++i) {
+    for (int i=0;i<net->input->getBufferSize();++i) {
         net_input[i] = input[i];
     }
     net->input->setItemsInRange(0, net->input->getBufferSize(),net_input);

@@ -854,7 +854,7 @@ void backward_convolutional1D_layer(convolutional1D_layer &l, network &net)
     int k = l.out_w*l.out_h;
 
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-    auto net_delta  = net.delta ? net.delta->getItemsInRange(0, net.delta->getBufferSize()):std::vector<float>();
+    auto net_delta  = net.delta ? net.delta->getItemsInRange(0, net.delta->getBufferSize()):std::unique_ptr<float[]>(nullptr);
   
     auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());

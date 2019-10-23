@@ -766,7 +766,7 @@ matrix network_predict_data(network *net, data test);
 image **load_alphabet();
 image get_network_image(network *net);
 #ifdef USE_SGX_LAYERWISE
-std::vector<float> network_predict(network *net, float *input);
+std::unique_ptr<float[]> network_predict(network *net, float *input);
 #else
 float *network_predict(network *net, float *input);
 #endif
