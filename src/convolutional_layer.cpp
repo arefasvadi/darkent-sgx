@@ -851,7 +851,14 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
   int m = l.n / l.groups;
   int k = l.size * l.size * l.c / l.groups;
   int n = l.out_w * l.out_h;
-  //LOG_DEBUG("begining conv with parameters outputs:%d, batch:%d,groups:%d, m:%d, k:%d, n:%d, out_w:%d,out_h:%d,out_c:%d\n",l.outputs,l.batch,l.groups,m,k,n,l.out_w,l.out_h,l.out_c);
+
+  auto n_workspace = l.size != 1 ? std::unique_ptr<float[]>(
+                         new float[l.enclave_layered_batch * l.out_h * l.out_w
+                                   * l.size * l.size])
+                                 : std::unique_ptr<float[]>(nullptr);
+  // LOG_DEBUG("begining conv with parameters outputs:%d, batch:%d,groups:%d,
+  // m:%d, k:%d, n:%d,
+  // out_w:%d,out_h:%d,out_c:%d\n",l.outputs,l.batch,l.groups,m,k,n,l.out_w,l.out_h,l.out_c);
   for (i = 0; i < l.batch; ++i) {
     for (j = 0; j < l.groups; ++j) {
       float *a = &l_weights[0] + j * l.nweights / l.groups;
@@ -863,7 +870,8 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
           gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
       } else {
           //auto n_workspace = net.workspace->getItemsInRange(0, 1*l.out_h*l.out_w*l.size*l.size);
-          auto n_workspace = std::vector<float>(l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size, 0);
+
+          //auto n_workspace = std::vector<float>(l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size, 0);
           for (int chan = 0; chan < q; chan++) {
             //std::memset(&n_workspace[0], 0, sizeof(float)*n_workspace.size());
             b = &n_workspace[0];
@@ -932,6 +940,11 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
       l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
     }
 
+    auto net_workspace = l.size != 1 ? std::unique_ptr<float[]>(
+                         new float[l.enclave_layered_batch * l.out_h * l.out_w
+                                   * l.size * l.size])
+                                 : std::unique_ptr<float[]>(nullptr);
+
     for(i = 0; i < l.batch; ++i){
         for(j = 0; j < l.groups; ++j){
             float *a = &l_delta[0] + (i*l.groups + j)*m*k;
@@ -944,7 +957,8 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
                 gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
             } else {
                 //auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
-                auto net_workspace = std::vector<float>(l.enclave_layered_batch*l.size*l.size*l.out_h*l.out_w,0);
+                
+                //auto net_workspace = std::vector<float>(l.enclave_layered_batch*l.size*l.size*l.out_h*l.out_w,0);
                 for (int chan = 0; chan < q;++chan) {
                   //std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
                   b = &net_workspace[0];
@@ -973,7 +987,8 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
                 }
                 else {
                     //auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
-                    auto net_workspace = std::vector<float>(l.enclave_layered_batch*l.size*l.size*l.out_h*l.out_w,0);
+                    
+                    //auto net_workspace = std::vector<float>(l.enclave_layered_batch*l.size*l.size*l.out_h*l.out_w,0);
                     for (int chan=0;chan < q;chan++) {
                         //std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
                         c = &net_workspace[0];

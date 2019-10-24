@@ -209,7 +209,8 @@ void forward_network(network *netp)
     for(i = 0; i < net.n; ++i){
         net.index = i;
         layer l = net.layers[i];
-        //LOG_DEBUG("processing forward layer %d of %d with %d weights and %d biases\n",i+1,net.n,l.nweights,l.nbiases)
+        // LOG_DEBUG("processing forward layer %d of %d with %d weights and %d biases of type %s\n",i+1,net.n,l.nweights,l.nbiases,
+        //         get_layer_string(l.type))
         if(l.delta){
             #ifndef USE_SGX_LAYERWISE
             fill_cpu(l.outputs * l.batch, 0, l.delta, 1);
@@ -254,7 +255,8 @@ void update_network(network *netp)
 
     for(i = 0; i < net.n; ++i){
         layer l = net.layers[i];
-        //LOG_DEBUG("processing update layer %d of %d\n",i+1,net.n)
+       //LOG_DEBUG("processing update layer %d of %d with %d weights and %d biases of type %s\n",i+1,net.n,l.nweights,l.nbiases,
+       //         get_layer_string(l.type))
         if(l.update){
             l.update(l, a);
         }
@@ -297,7 +299,8 @@ void backward_network(network *netp)
     network orig = net;
     for(i = net.n-1; i >= 0; --i){
         layer l = net.layers[i];
-        //LOG_DEBUG("backward layer %d of %d of type %s\n",(i+1),net.n,get_layer_string(l.type))
+        //LOG_DEBUG("processing backward layer %d of %d with %d weights and %d biases of type %s\n",i+1,net.n,l.nweights,l.nbiases,
+        //        get_layer_string(l.type))
         if(l.stopbackward) break;
         if(i == 0){
             net = orig;
