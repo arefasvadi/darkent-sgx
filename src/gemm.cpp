@@ -7,6 +7,121 @@
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wregister"
+
+#if defined(USE_SGX) && defined (USE_GEMM_THREADING_SGX)
+gemm_multi_thread_params_t gemm_params = {};
+std::vector<gemm_thread_task_t> per_thr_params = {};
+namespace {
+
+  void
+  reset_gemm_params_thread_context() {
+    gemm_params = {};
+  }
+
+  void
+  set_gemm_params_thread_context(int    TA,
+                                 int    TB,
+                                 int    M,
+                                 int    N,
+                                 int    K,
+                                 float  ALPHA,
+                                 float *A,
+                                 int    lda,
+                                 float *B,
+                                 int    ldb,
+                                 float  BETA,
+                                 float *C,
+                                 int    ldc) {
+    gemm_params.TA    = TA;
+    gemm_params.TB    = TB;
+    gemm_params.M     = M;
+    gemm_params.N     = N;
+    gemm_params.K     = K;
+    gemm_params.ALPHA = ALPHA;
+    gemm_params.A     = A;
+    gemm_params.lda   = lda;
+    gemm_params.B     = B;
+    gemm_params.ldb   = ldb;
+    gemm_params.BETA  = BETA;
+    gemm_params.C     = C;
+    gemm_params.ldc   = ldc;
+    gemm_params.starterM = 0;
+    gemm_params.starterN = 0;
+  }
+
+  int
+  set_num_threading_gemm_cpu() {
+    int available_threads = (AVAIL_THREADS);
+    // it seems that accessing per row is more efficient! probably because of
+    // caching
+    bool more_rows = true;
+    // bool more_rows         = (gemm_params.M >= gemm_params.N);
+    int q, r;
+    if (more_rows) {
+      q = gemm_params.M / available_threads;
+      r = gemm_params.M % available_threads;
+      if (q == 0) {
+        available_threads = r;
+        q                 = gemm_params.M / available_threads;
+        r                 = gemm_params.M % available_threads;
+      }
+    } else {
+      q = gemm_params.N / available_threads;
+      r = gemm_params.N % available_threads;
+      if (q == 0) {
+        available_threads = r;
+        q                 = gemm_params.N / available_threads;
+        r                 = gemm_params.N % available_threads;
+      }
+    }
+    //per_thr_params.resize(available_threads);
+
+    int currM  = 0;
+    int currN  = 0;
+    int M_size = 0;
+    int N_size = 0;
+    for (int i = 0; i < available_threads; ++i) {
+      auto thread_gemm_ptrs = gemm_params;
+      if (more_rows) {
+        M_size = q;
+        if (r > 0) {
+          M_size += r;
+          r = 0;
+        }
+        thread_gemm_ptrs.starterM = currM;
+        currM += M_size;
+        thread_gemm_ptrs.M = currM;
+      } else {
+        N_size = q;
+        if (r > 0) {
+          N_size += r;
+          r = 0;
+        }
+        thread_gemm_ptrs.starterN = currN;
+        currN += N_size;
+        thread_gemm_ptrs.N = currN;
+      }
+      per_thr_params.push_back({thread_gemm_ptrs,{thread_task_status_t::not_started}});
+    }
+    return available_threads;
+  }
+
+  void reset_gemm_per_thread() {
+      per_thr_params.resize(0);
+  }
+
+  void check_reset_gemm_per_thread() {
+      for (int i=0;i<per_thr_params.size();++i) {
+          if (per_thr_params[i].second._a.load() != thread_task_status_t::finished) {
+              LOG_DEBUG("Some threads task has not yet finished\n");
+              abort();
+          }
+      }
+      reset_gemm_per_thread();
+  }
+}  // namespace
+#endif
+
 void gemm_bin(int M, int N, int K, float ALPHA, 
         char  *A, int lda, 
         float *B, int ldb,
@@ -145,33 +260,45 @@ void gemm_tt(int M, int N, int K, float ALPHA,
     }
 }
 
-
 void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA, 
         float *A, int lda, 
         float *B, int ldb,
         float BETA,
         float *C, int ldc)
 {
-    //printf("cpu: %d %d %d %d %d %f %d %d %f %d\n",TA, TB, M, N, K, ALPHA, lda, ldb, BETA, ldc);
-    int i, j;
-    //LOG_DEBUG("TA:%d, TB:%d, M:%d, N:%d, K:%d, lda:%d, ldb:%d, ldc:%d\n",TA,TB,M,N,K,lda,ldb,ldc)
-    //LOG_DEBUG("indexes in range [%d,%d] will be used\n",0,N-1+(M-1)*ldc);
-    if (BETA != 1) {
-        #if defined(USE_SGX) && defined (USE_GEMM_THREADING_SGX)
-        sgx_status_t res = ocall_handle_gemm_cpu_first_mult(M, N, BETA,ldc,(size_t) C);
-        CHECK_SGX_SUCCESS(res, "function ocall_handle_gemm_cpu_first_mult caused problem!")
-        #else
-        for(i = 0; i < M; ++i){
-            for(j = 0; j < N; ++j){
-                C[i*ldc + j] *= BETA;
-            }
-        }
-        #endif
+#if defined(USE_SGX) && defined(USE_GEMM_THREADING_SGX)
+  set_gemm_params_thread_context(
+      TA, TB, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
+#endif
+  // printf("cpu: %d %d %d %d %d %f %d %d %f %d\n",TA, TB, M, N, K, ALPHA, lda,
+  // ldb, BETA, ldc);
+  int i, j;
+  // LOG_DEBUG("TA:%d, TB:%d, M:%d, N:%d, K:%d, lda:%d, ldb:%d,
+  // ldc:%d\n",TA,TB,M,N,K,lda,ldb,ldc) LOG_DEBUG("indexes in range [%d,%d] will
+  // be used\n",0,N-1+(M-1)*ldc);
+  if (BETA != 1) {
+#if defined(USE_SGX) && defined(USE_GEMM_THREADING_SGX)
+    auto num_threads = set_num_threading_gemm_cpu();
+    sgx_status_t res
+        = ocall_handle_gemm_cpu_first_mult(num_threads);
+    CHECK_SGX_SUCCESS(
+        res, "function ocall_handle_gemm_cpu_first_mult caused problem!")
+    check_reset_gemm_per_thread();
+#else
+    for (i = 0; i < M; ++i) {
+      for (j = 0; j < N; ++j) {
+        C[i * ldc + j] *= BETA;
+      }
     }
+#endif
+  }
     #if defined(USE_SGX) && defined (USE_GEMM_THREADING_SGX)
-    sgx_status_t res = ocall_handle_gemm_all(TA, TB, M, N, K, ALPHA, (size_t)A, lda, 
-        (size_t)B, ldb, (size_t)C,ldc);
+    auto num_threads = set_num_threading_gemm_cpu();
+    sgx_status_t res = ocall_handle_gemm_all(num_threads);
     CHECK_SGX_SUCCESS(res, "function ocall_handle_gemm_cpu_all caused problem!")
+    check_reset_gemm_per_thread();
+    reset_gemm_params_thread_context();
+    
     #else
     if(!TA && !TB)
         gemm_nn(M, N, K, ALPHA,A,lda, B, ldb,C,ldc);
