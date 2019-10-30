@@ -6,6 +6,67 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+// #if defined(USE_SGX) && defined(USE_GEMM_THREADING_SGX)
+// const int cpu_same_src_dest_num = 2000;
+// std::vector<cpu_same_thread_task_t> cpu_same_src_dest_per_thr_params = {};
+// cpu_same_src_dest_multi_thread_params_t cpu_same_src_dest_params = {};
+// namespace {
+//   void
+//   reset_cpu_same_src_dest_thread_context() {
+//     cpu_same_src_dest_params = {};
+//   }
+
+//   void
+//   set_cpu_same_src_dest_thread_context(int N, float ALPHA, float *X, int INCX) {
+//     cpu_same_src_dest_params.N     = N;
+//     cpu_same_src_dest_params.ALPHA = ALPHA;
+//     cpu_same_src_dest_params.X     = X;
+//     cpu_same_src_dest_params.INCX  = INCX;
+//   }
+//   int
+//   set_num_threading_cpu_same_src_dest() {
+//     int num_threads = (AVAIL_THREADS);
+//     int q           = cpu_same_src_dest_params.N / num_threads;
+//     int r           = cpu_same_src_dest_params.N % num_threads;
+//     if (q == 0) {
+//       num_threads = r;
+//       q           = cpu_same_src_dest_params.N / num_threads;
+//       r           = cpu_same_src_dest_params.N % num_threads;
+//     }
+
+//     int starterN = 0;
+//     int Nsize = 0;
+//     for (int i=0;i < num_threads; ++i) {
+//         auto thread_params = cpu_same_src_dest_params;
+//         Nsize = q;
+//         if (r > 0) {
+//             Nsize += r;
+//             r = 0;
+//         }
+//         thread_params.starterN = starterN;
+//         starterN += Nsize;
+//         thread_params.N = starterN;
+//         cpu_same_src_dest_per_thr_params.push_back({thread_params,{thread_task_status_t::not_started}});
+//     }
+//     return num_threads;
+//   }
+
+//   void reset_cpu_same_src_dest_per_thread() {
+//       cpu_same_src_dest_per_thr_params.resize(0);
+//   }
+
+//   void check_reset_cpu_same_src_dest_per_thread() {
+//       for (int i=0;i<cpu_same_src_dest_per_thr_params.size();++i) {
+//           if (cpu_same_src_dest_per_thr_params[i].second._a.load() != thread_task_status_t::finished) {
+//               LOG_DEBUG("Some threads task has not yet finished\n");
+//               abort();
+//           }
+//       }
+//       reset_cpu_same_src_dest_per_thread();
+//   }
+// }  // namespace
+// #endif
 void reorg_cpu(float *x, int w, int h, int c, int batch, int stride, int forward, float *out)
 {
     int b,i,j,k;
@@ -160,8 +221,9 @@ void normalize_cpu(float *x, float *mean, float *variance, int batch, int filter
 
 void const_cpu(int N, float ALPHA, float *X, int INCX)
 {
-    int i;
-    for(i = 0; i < N; ++i) X[i*INCX] = ALPHA;
+    //int i;
+    //for(i = 0; i < N; ++i) X[i*INCX] = ALPHA;
+    fill_cpu(N, ALPHA, X, INCX);
 }
 
 void mul_cpu(int N, float *X, int INCX, float *Y, int INCY)
@@ -178,20 +240,71 @@ void pow_cpu(int N, float ALPHA, float *X, int INCX, float *Y, int INCY)
 
 void axpy_cpu(int N, float ALPHA, float *X, int INCX, float *Y, int INCY)
 {
+    // #ifdef USE_SGX
+    // const char* timing_key = "axpy_cpu time";
+    // ocall_set_timing(timing_key,strlen(timing_key)+1 , 1, 0);
+    // #endif
     int i;
     for(i = 0; i < N; ++i) Y[i*INCY] += ALPHA*X[i*INCX];
+    // #ifdef USE_SGX
+    // ocall_set_timing(timing_key,strlen(timing_key)+1 , 0, 1);
+    // #endif
 }
 
 void scal_cpu(int N, float ALPHA, float *X, int INCX)
 {
+    // #if defined(USE_SGX) && defined(USE_GEMM_THREADING_SGX)
+    // if (N > cpu_same_src_dest_num) {
+    //     set_cpu_same_src_dest_thread_context(N, ALPHA, X, INCX);
+    //     auto num_threads = set_num_threading_cpu_same_src_dest();
+    //     auto res = ocall_handle_scale_cpu(num_threads);
+    //     CHECK_SGX_SUCCESS(res, "ocall handle scale cpu caused problem\n")
+    //     check_reset_cpu_same_src_dest_per_thread();
+    //     reset_cpu_same_src_dest_thread_context();
+    // }
+    // else {
+    //     int i;
+    //     for(i = 0; i < N; ++i) X[i*INCX] *= ALPHA;    
+    // }
+    // #else
+    // #ifdef USE_SGX
+    // const char* timing_key = "scal_cpu time";
+    // ocall_set_timing(timing_key,strlen(timing_key)+1 , 1, 0);
+    // #endif
     int i;
     for(i = 0; i < N; ++i) X[i*INCX] *= ALPHA;
+    // #ifdef USE_SGX
+    // ocall_set_timing(timing_key,strlen(timing_key)+1 , 0, 1);
+    // #endif
+    // #endif
 }
 
 void fill_cpu(int N, float ALPHA, float *X, int INCX)
 {
+    // #if defined(USE_SGX) && defined(USE_GEMM_THREADING_SGX)
+    // if (N > cpu_same_src_dest_num) {
+    //     set_cpu_same_src_dest_thread_context(N, ALPHA, X, INCX);
+    //     auto num_threads = set_num_threading_cpu_same_src_dest();
+    //     auto res = ocall_handle_fill_cpu(num_threads);
+    //     CHECK_SGX_SUCCESS(res, "ocall handle scale cpu caused problem\n")
+    //     check_reset_cpu_same_src_dest_per_thread();
+    //     reset_cpu_same_src_dest_thread_context();
+    // }
+    // else {
+    //     int i;
+    //     for(i = 0; i < N; ++i) X[i*INCX] = ALPHA;    
+    // }
+    // #else
+    // #ifdef USE_SGX
+    // const char* timing_key = "fill_cpu time";
+    // ocall_set_timing(timing_key,strlen(timing_key)+1 , 1, 0);
+    // #endif
     int i;
     for(i = 0; i < N; ++i) X[i*INCX] = ALPHA;
+    // #ifdef USE_SGX
+    // ocall_set_timing(timing_key,strlen(timing_key)+1 , 0, 1);
+    // #endif
+    // #endif
 }
 
 void deinter_cpu(int NX, float *X, int NY, float *Y, int B, float *OUT)

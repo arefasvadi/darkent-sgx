@@ -266,6 +266,10 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
         float BETA,
         float *C, int ldc)
 {
+// #ifdef USE_SGX
+// const char* timing_key = "gemm time";
+// ocall_set_timing(timing_key,strlen(timing_key)+1 , 1, 0);
+// #endif
 #if defined(USE_SGX) && defined(USE_GEMM_THREADING_SGX)
   set_gemm_params_thread_context(
       TA, TB, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
@@ -309,6 +313,9 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
     else
         gemm_tt(M, N, K, ALPHA,A,lda, B, ldb,C,ldc);
     #endif
+// #ifdef USE_SGX
+// ocall_set_timing(timing_key,strlen(timing_key)+1 , 0, 1);
+// #endif
 }
 
 #ifdef GPU
