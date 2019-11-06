@@ -64,7 +64,7 @@ avgpoolx1D_layer make_avgpoolx1D_layer(int batch, int h, int w, int c, int size,
 } */
 
 #ifndef USE_SGX_LAYERWISE
-void forward_avgpoolx1D_layer(const avgpoolx1D_layer& l, const network &net)
+void forward_avgpoolx1D_layer(avgpoolx1D_layer& l, network &net)
 {
     /* int b,i,k;
 
@@ -115,7 +115,7 @@ void forward_avgpoolx1D_layer(const avgpoolx1D_layer& l, const network &net)
 #endif
 
 #ifndef USE_SGX_LAYERWISE
-void backward_avgpoolx1D_layer(const avgpoolx1D_layer& l, const network &net)
+void backward_avgpoolx1D_layer(avgpoolx1D_layer& l, network &net)
 {
     /* int b,i,k;
 
