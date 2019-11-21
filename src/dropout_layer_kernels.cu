@@ -2,11 +2,11 @@
 #include "curand.h"
 #include "cublas_v2.h"
 
-extern "C" {
+//extern "C" {
 #include "dropout_layer.h"
 #include "cuda.h"
 #include "utils.h"
-}
+//}
 
 __global__ void yoloswag420blazeit360noscope(float *input, int size, float *rand, float prob, float scale)
 {
@@ -18,7 +18,12 @@ void forward_dropout_layer_gpu(dropout_layer layer, network net)
 {
     if (!net.train) return;
     int size = layer.inputs*layer.batch;
+    #if !defined(SGX_VERIFIES)
     cuda_random(layer.rand_gpu, size);
+    #else
+    // fill gpu
+    cuda_push_array(layer.rand_gpu, layer.rand, size)
+    #endif
     /*
     int i;
     for(i = 0; i < size; ++i){

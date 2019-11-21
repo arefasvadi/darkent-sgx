@@ -344,7 +344,7 @@ layer parse_softmax(list *options, size_params params)
     layer l = make_softmax_layer(params.batch, params.inputs, groups);
     l.temperature = option_find_float_quiet(options, "temperature", 1);
     char *tree_file = option_find_str(options, "tree", 0);
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined(SGX_VERIFIES)
     if (tree_file) l.softmax_tree = read_tree(tree_file);
 #else
 #endif
@@ -356,7 +356,7 @@ layer parse_softmax(list *options, size_params params)
     return l;
 }
 
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined(SGX_VERIFIES)
 int *parse_yolo_mask(char *a, int *num)
 {
     int *mask = 0;
@@ -480,7 +480,7 @@ layer parse_region(list *options, size_params params)
 #endif
 
 
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined(SGX_VERIFIES)
 detection_layer parse_detection(list *options, size_params params)
 {
     int coords = option_find_int(options, "coords", 1);
@@ -547,7 +547,7 @@ crop_layer parse_crop(list *options, size_params params)
     return l;
 }
 
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined(SGX_VERIFIES)
 layer parse_reorg(list *options, size_params params)
 {
     int stride = option_find_int(options, "stride",1);
@@ -665,7 +665,8 @@ dropout_layer parse_dropout(list *options, size_params params)
     return layer;
 }
 
-#ifndef USE_SGX_LAYERWISE
+#if !defined(USE_SGX_LAYERWISE) && !defined(SGX_VERIFIES)
+//#ifndef USE_SGX_LAYERWISE
 layer parse_normalization(list *options, size_params params)
 {
     float alpha = option_find_float(options, "alpha", .0001);
@@ -711,7 +712,8 @@ layer parse_shortcut(list *options, size_params params, network *net)
     return l;
 } */
 
-#ifndef USE_SGX_LAYERWISE
+#if !defined(USE_SGX) && !defined(SGX_VERIFIES)
+//#ifndef USE_SGX_LAYERWISE
 layer parse_logistic(list *options, size_params params)
 {
     layer l = make_logistic_layer(params.batch, params.inputs);
@@ -809,11 +811,17 @@ void parse_net_options(list *options, network *net)
     net->momentum = option_find_float(options, "momentum", .9);
     net->decay = option_find_float(options, "decay", .0001);
     int subdivs = option_find_int(options, "subdivisions",1);
+    int enclave_subdivs = option_find_int(options, "enclave_subdivisions",1);
     net->time_steps = option_find_int_quiet(options, "time_steps",1);
     net->notruth = option_find_int_quiet(options, "notruth",0);
+    #if defined(SGX_VERIFIES)
     net->batch /= subdivs;
+    #elif defined (USE_SGX)
+    net->batch /= enclave_subdivs;
+    #endif
     net->batch *= net->time_steps;
     net->subdivisions = subdivs;
+    net->enclave_subdivisions= enclave_subdivs;
     net->random = option_find_int_quiet(options, "random", 0);
 
     net->adam = option_find_int_quiet(options, "adam", 0);
@@ -908,6 +916,15 @@ network *parse_network_cfg(char *filename)
       abort();
     }
     network *net = make_network(sections->size - 1);
+    #if defined(USE_SGX)
+    set_network_batch_randomness(0,*net);
+    std::array<uint64_t, 16> temp;
+    #elif defined(SGX_VERIFIES)
+    std::array<uint64_t, 16> temp;
+    net->iter_batch_rng = batch_inp_rng;
+    net->layer_rng_deriver = batch_layers_rng;
+    #endif
+
     net->gpu_index = gpu_index;
     size_params params;
 
@@ -930,9 +947,9 @@ network *parse_network_cfg(char *filename)
     size_t workspace_size = 0;
     n = n->next;
     int count = 0;
-    LOG_INFO("network type is :%s\n",s->type);
+    //LOG_INFO("network type is :%s\n",s->type);
     free_section(s);
-    LOG_DEBUG("free_Section was successful" "\n");
+    //LOG_DEBUG("free_Section was successful" "\n");
 
     while(n){
         params.index = count;
@@ -944,6 +961,12 @@ network *parse_network_cfg(char *filename)
         options = s->options;
         layer l = {};
         LAYER_TYPE lt = string_to_layer_type(s->type);
+#if defined(USE_SGX) || defined(SGX_VERIFIES)
+        for (int i = 0; i < 16; ++i) {
+          temp[i] = net->layer_rng_deriver->getRandomUint64();
+        }
+        l.layer_rng = std::make_shared<PRNG>(temp);
+#endif
         if(lt == CONVOLUTIONAL){
             l = parse_convolutional(options, params);
         } else if(lt == CONVOLUTIONAL1D){
@@ -957,11 +980,13 @@ network *parse_network_cfg(char *filename)
         } */
         else if(lt == ACTIVE){
             l = parse_activation(options, params);
-        }else if(lt == LOGXENT){
-            #ifndef USE_SGX
-            l = parse_logistic(options, params);
-            #endif
         }
+        #if !defined(USE_SGX) && !defined (SGX_VERIFIES)
+        else if(lt == LOGXENT){
+            l = parse_logistic(options, params);
+            
+        }
+        #endif
         /* else if(lt == L2NORM){
             l = parse_l2norm(options, params);
         } */
@@ -984,7 +1009,7 @@ network *parse_network_cfg(char *filename)
         }else if(lt == COST){
             l = parse_cost(options, params);
         }
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined (SGX_VERIFIES)
         else if(lt == REGION){
             l = parse_region(options, params);
         }else if(lt == YOLO){
@@ -1001,7 +1026,7 @@ network *parse_network_cfg(char *filename)
             l = parse_softmax(options, params);
             net->hierarchy = l.softmax_tree;
         }else if(lt == NORMALIZATION){
-          #ifndef USE_SGX
+          #if !defined(USE_SGX) && !defined (SGX_VERIFIES)
             l = parse_normalization(options, params);
           #endif
         }else if(lt == BATCHNORM){
@@ -1011,7 +1036,7 @@ network *parse_network_cfg(char *filename)
         }else if(lt == MAXPOOL1D){
             l = parse_maxpool1D(options, params);
         }
-        #ifndef USE_SGX
+        #if !defined(USE_SGX) && !defined (SGX_VERIFIES)
         else if(lt == REORG){
             l = parse_reorg(options, params);
         }
@@ -1110,7 +1135,7 @@ network *parse_network_cfg(char *filename)
     return net;
 }
 
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined (SGX_VERIFIES)
 list *read_cfg(char *filename)
 {
   FILE *file = fopen(filename, "r");
@@ -1155,8 +1180,6 @@ list *read_cfg(char *filename) {
   char file_content[20000];
   memset(file_content, 0, 20000);
   memcpy(file_content, filename, strlen(filename) + 1);
-  /* printf("%s:%d@%s =>  read_cfg file content is %s\n", __FILE__, */
-  /*           __LINE__, __func__,file_content); */
   char *line;
   char *temp;
   /* int nu = 0; */
@@ -1239,7 +1262,7 @@ void save_convolutional_weights_binary(layer l, FILE *fp) {
 #else
 #endif
 
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined (SGX_VERIFIES)
 void save_convolutional_weights(layer l, FILE *fp) {
   if (l.binary) {
     // save_convolutional_weights_binary(l, fp);
@@ -1385,7 +1408,7 @@ void transpose_matrix(float *a, int rows, int cols) {
   free(transpose);
 }
 
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined(SGX_VERIFIES)
 void load_connected_weights(layer l, FILE *fp, int transpose)
 {
     fread(l.biases, sizeof(float), l.outputs, fp);

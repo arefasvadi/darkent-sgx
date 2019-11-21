@@ -563,6 +563,9 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
                     c = imd;
                 }
 
+                // int m->n = l.n/l.groups;
+                // int n->k = l.size*l.size*l.c/l.groups;
+                // int k->m = l.out_w*l.out_h;
                 gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
 
                 if (l.size != 1) {
@@ -992,6 +995,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
                     for (int chan=0;chan < q;chan++) {
                         //std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
                         c = &net_workspace[0];
+                        // TODO: potential bug
                         gemm(1,0,l.enclave_layered_batch*l.size*l.size,k,m,1,a+(chan*l.enclave_layered_batch*l.size*l.size),n,b,k,0,c,k);
                         col2im_cpu(c, l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, imd+(chan*l.enclave_layered_batch*l.h*l.w));
                     }

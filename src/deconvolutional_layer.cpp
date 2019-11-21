@@ -222,7 +222,7 @@ void resize_deconvolutional_layer(layer *l, int h, int w)
     l->workspace_size = get_workspace_size(*l);
 }
 
-void forward_deconvolutional_layer(const layer& l, const network& net)
+void forward_deconvolutional_layer(layer& l, network& net)
 {
     int i;
 
@@ -249,7 +249,7 @@ void forward_deconvolutional_layer(const layer& l, const network& net)
     activate_array(l.output, l.batch*l.n*l.out_w*l.out_h, l.activation);
 }
 
-void backward_deconvolutional_layer(const layer &l, const network& net)
+void backward_deconvolutional_layer(layer &l, network& net)
 {
     int i;
 

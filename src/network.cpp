@@ -53,7 +53,7 @@ load_args get_base_args(network *net)
 network *load_network(char *cfg, char *weights, int clear)
 {
   network *net = parse_network_cfg(cfg);
-  #ifndef USE_SGX
+  #if !defined(USE_SGX) && !defined (SGX_VERIFIES)
   if(weights && weights[0] != 0){
     load_weights(net, weights);
   }
@@ -412,7 +412,7 @@ void set_batch_network(network *net, int b)
     }
 }
 
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined(SGX_VERIFIES)
 int resize_network(network *net, int w, int h)
 {
 #ifdef GPU
@@ -600,7 +600,7 @@ float *network_predict(network *net, float *input)
 }
 #endif
 
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined(SGX_VERIFIES)
 int num_detections(network *net, float thresh)
 {
   int i;
@@ -771,7 +771,7 @@ matrix network_predict_data(network *net, data test)
 #endif
 #endif
 
-#ifndef USE_SGX
+#if !defined(USE_SGX) && !defined (SGX_VERIFIES)
 void print_network(network *net)
 {
   int i,j;
@@ -819,7 +819,7 @@ void compare_networks(network *n1, network *n2, data test)
 #else
 #endif
 
-#ifndef USE_SGX_LAYERWISE
+#if !defined(USE_SGX) && !defined (SGX_VERIFIES)
 float network_accuracy(network *net, data d)
 {
   matrix guess = network_predict_data(net, d);

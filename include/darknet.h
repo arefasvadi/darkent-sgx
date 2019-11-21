@@ -132,6 +132,11 @@ struct layer{
     void (*forward_gpu)   (struct layer, struct network);
     void (*backward_gpu)  (struct layer, struct network);
     void (*update_gpu)    (struct layer, update_args);
+    #if defined(SGX_VERIFIES) && defined(GPU)
+    void (*forward_gpu_sgx_verifies)   (struct layer, struct network);
+    void (*backward_gpu_sgx_verifies)  (struct layer, struct network);
+    void (*update_gpu_sgx_verifies)    (struct layer, update_args);
+    #endif
     int batch_normalize;
     int shortcut;
     int batch;
@@ -297,6 +302,7 @@ struct layer{
     float *dc_cpu; 
 
     float * binary_input;
+    std::shared_ptr<PRNG> layer_rng;
 
     struct layer *input_layer;
     struct layer *self_layer;
@@ -446,6 +452,7 @@ typedef struct network{
     int *t;
     float epoch;
     int subdivisions;
+    int enclave_subdivisions;
     layer *layers;
     float *output;
     learning_rate_policy policy;
@@ -497,6 +504,8 @@ typedef struct network{
     int index;
     float *cost;
     float clip;
+    std::shared_ptr<PRNG> iter_batch_rng;
+    std::shared_ptr<PRNG> layer_rng_deriver;
 
 #ifdef GPU
     float *input_gpu;
@@ -850,9 +859,13 @@ float rand_uniform(float min, float max);
     void (*forward)   (struct layer&, struct network &);
     void (*backward)  (struct layer&, struct network &);
     void (*update)    (struct layer&, update_args);
+    void (*forward_verify_gpu)   (struct layer&, struct network &);
+    void (*backward_verify_gpu)  (struct layer&, struct network &);
+    void (*update_verify_gpu)    (struct layer&, update_args);
     void (*forward_gpu)   (struct layer, struct network);
     void (*backward_gpu)  (struct layer, struct network);
     void (*update_gpu)    (struct layer, update_args);
+
     int batch_normalize;
     int shortcut;
     int batch;
@@ -1083,7 +1096,7 @@ float rand_uniform(float min, float max);
 
     //float * binary_input;
     std::shared_ptr<sgx::trusted::SpecialBuffer<float>> binary_input;
-
+    std::shared_ptr<PRNG> layer_rng;
     struct layer *input_layer;
     struct layer *self_layer;
     struct layer *output_layer;
@@ -1135,6 +1148,7 @@ typedef struct network{
     int *t;
     float epoch;
     int subdivisions;
+    int enclave_subdivisions;
     layer *layers;
     //float *output;
     std::shared_ptr<sgx::trusted::SpecialBuffer<float>> output;
@@ -1191,6 +1205,8 @@ typedef struct network{
     int index;
     float *cost;
     float clip;
+    std::shared_ptr<PRNG> iter_batch_rng;
+    std::shared_ptr<PRNG> layer_rng_deriver;
 } network;
 
 #endif
