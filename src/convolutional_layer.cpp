@@ -185,11 +185,11 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
                                              int stride, int padding,
                                              ACTIVATION activation,
                                              int batch_normalize, int binary,
-                                             int xnor, int adam) {
+                                             int xnor, int adam,PRNG& net_layer_rng_deriver) {
   int i;
   convolutional_layer l = {};
   l.type = CONVOLUTIONAL;
-
+  l.layer_rng = std::make_shared<PRNG>(generate_random_seed_from(net_layer_rng_deriver));
   l.groups = groups;
   l.h = h;
   l.w = w;
@@ -219,8 +219,10 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   // scale = .02;
   // for(i = 0; i < c*n*size*size; ++i) l.weights[i] = scale*rand_uniform(-1,
   // 1);
-  for (i = 0; i < l.nweights; ++i)
-    l.weights[i] = scale * rand_normal();
+  for (i = 0; i < l.nweights; ++i) {
+    // l.weights[i] = scale * rand_normal();
+     l.weights[i] = scale * rand_normal(*(l.layer_rng));
+  }
   
   //LOG_DEBUG("INIT conv layer 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
   int out_w = convolutional_out_width(l);
@@ -280,6 +282,13 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
       l.scale_v = (float *)calloc(n, sizeof(float));
     }
   }
+
+#if defined(SGX_VERIFIES) && defined(GPU)
+    l.forward_gpu_sgx_verifies = forward_convolutional_gpu_sgx_verifies_fbv; 
+    l.backward_gpu_sgx_verifies = backward_convolutional_gpu_sgx_verifies_fbv;
+    l.update_gpu_sgx_verifies = update_convolutional_gpu_sgx_verifies_fbv;
+    l.create_snapshot_for_sgx = create_convolutional_snapshot_for_sgx_fbv;
+#endif 
 
 #ifdef GPU
     l.forward_gpu = forward_convolutional_layer_gpu;
@@ -587,6 +596,10 @@ void update_convolutional_layer(convolutional_layer& l, update_args a)
     float momentum = a.momentum;
     float decay = a.decay;
     int batch = a.batch;
+    float clip = a.grad_clip;
+    if (clip != 0) {
+       constrain_cpu(l.n,clip,l.bias_updates,1);    
+    }
     //LOG_DEBUG("lr:%f,moment:%f,decay:%f,batch:%d total weights:%d\n",learning_rate,momentum,decay,batch,l.nweights)
     //LOG_DEBUG("before update 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
 
@@ -594,10 +607,16 @@ void update_convolutional_layer(convolutional_layer& l, update_args a)
     scal_cpu(l.n, momentum, l.bias_updates, 1);
 
     if(l.scales){
+        if (clip != 0) {
+          constrain_cpu(l.n,clip,l.scale_updates,1);    
+        }
         axpy_cpu(l.n, learning_rate/batch, l.scale_updates, 1, l.scales, 1);
         scal_cpu(l.n, momentum, l.scale_updates, 1);
     }
 
+    if (clip != 0) {
+      constrain_cpu(l.nweights,clip,l.weight_updates,1);    
+    }
     //LOG_DEBUG("before update 237 and 121 weight updates are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
     axpy_cpu(l.nweights, -decay*batch, l.weights, 1, l.weight_updates, 1);
     //LOG_DEBUG("here update 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
@@ -664,17 +683,66 @@ image *get_weights(convolutional_layer l) {
 }
 #endif
 
+#if defined(SGX_VERIFIES) && defined(GPU)
+void
+forward_convolutional_gpu_sgx_verifies_fbv(convolutional_layer l, network net) {
+  forward_convolutional_layer_gpu(l, net);
+}
+void
+backward_convolutional_gpu_sgx_verifies_fbv(convolutional_layer l, network net) {
+  backward_convolutional_layer_gpu(l, net);
+}
+void
+update_convolutional_gpu_sgx_verifies_fbv(convolutional_layer l, update_args a) {
+  update_convolutional_layer_gpu(l, a);
+}
+
+void
+create_convolutional_snapshot_for_sgx_fbv(struct layer &  l,
+                                          struct network &net,
+                                          uint8_t **      out,
+                                          uint8_t **      sha256_out) {
+  if (gpu_index >= 0) {
+    pull_convolutional_layer(l);
+  }
+  int total_bytes = count_layer_paramas_bytes(l);
+  size_t buff_ind = 0;
+  *out            = new uint8_t[total_bytes];
+  *sha256_out     = new uint8_t[SHA256_DIGEST_LENGTH];
+
+  std::memcpy((*out + buff_ind), l.bias_updates, l.nbiases * sizeof(float));
+  buff_ind += l.nbiases * sizeof(float);
+  std::memcpy((*out + buff_ind), l.weight_updates, l.nweights * sizeof(float));
+  buff_ind += l.nweights * sizeof(float);
+
+  if (l.batch_normalize) {
+    std::memcpy((*out + buff_ind), l.scale_updates, l.nbiases * sizeof(float));
+    buff_ind += l.nbiases * sizeof(float);
+    std::memcpy((*out + buff_ind), l.rolling_mean, l.nbiases * sizeof(float));
+    buff_ind += l.nbiases * sizeof(float);
+    std::memcpy(
+        (*out + buff_ind), l.rolling_variance, l.nbiases * sizeof(float));
+    buff_ind += l.nbiases * sizeof(float);
+  }
+  if (buff_ind != total_bytes) {
+    LOG_ERROR("size mismatch\n")
+    abort();
+  }
+  gen_sha256(*out, total_bytes, *sha256_out);
+}
+#endif
+
 #if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
 convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
                                              int n, int groups, int size,
                                              int stride, int padding,
                                              ACTIVATION activation,
                                              int batch_normalize, int binary,
-                                             int xnor, int adam) {
+                                             int xnor, int adam,PRNG& net_layer_rng_deriver) {
   int i,j;
   convolutional_layer l = {};
   l.type = CONVOLUTIONAL;
-
+  l.layer_rng = std::make_shared<PRNG>(generate_random_seed_from(net_layer_rng_deriver));
   l.groups = groups;
   l.h = h;
   l.w = w;
@@ -709,8 +777,11 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   // 1);
   {
     auto ws = l.weights->getItemsInRange(0, l.weights->getBufferSize());
-    for (i = 0; i < l.nweights; ++i)
-      ws[i] = scale * rand_normal();
+    for (i = 0; i < l.nweights; ++i) {
+      // ws[i] = scale * rand_normal();
+      ws[i] = scale * rand_normal(*(l.layer_rng));
+    }
+      
     l.weights->setItemsInRange(0, l.nweights,ws);
     //LOG_DEBUG("INIT conv layer ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),ws[237],ws[121])
   }
@@ -759,8 +830,9 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
 
     if (global_training) {
       auto scs = l.scales->getItemsInRange(0, l.scales->getBufferSize());
-      for (i = 0; i < n; ++i)
+      for (i = 0; i < n; ++i) {
         scs[i] = 1;
+      }
       l.scales->setItemsInRange(0, n,scs);
     }
 
@@ -836,10 +908,13 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
   //auto n_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
   auto n_input = net.input->getItemsInRange(0, net.input->getBufferSize());
   //LOG_DEBUG("before forward ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),l_weights[237],l_weights[121])
+  // print_array(&n_input[0],100,0,"sgx before conv forward input");
+  // print_array(&l_weights[0],l.nweights,0,"sgx conv forward weights");
 
   fill_cpu(l.outputs * l.batch, 0, &l_output[0], 1);
   int q = (l.c/l.groups) / l.enclave_layered_batch;
   int r = (l.c/l.groups) % l.enclave_layered_batch;
+  // LOG_DEBUG("q:%d,r=%d, enclave_channel_limit:%d\n",q,r,l.enclave_layered_batch)
 
   if (l.xnor) {
     LOG_ERROR("XNOR feature not implemented!\n");
@@ -876,7 +951,7 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
 
           //auto n_workspace = std::vector<float>(l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size, 0);
           for (int chan = 0; chan < q; chan++) {
-            //std::memset(&n_workspace[0], 0, sizeof(float)*n_workspace.size());
+            std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
             b = &n_workspace[0];
             //im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
             im2col_cpu(im+(chan*l.enclave_layered_batch*l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
@@ -884,6 +959,7 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
           }
           if (r > 0) {
             b = &n_workspace[0];
+            std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
             im2col_cpu(im+(q*l.enclave_layered_batch*l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
             gemm(0, 0, m, n, (r*l.size*l.size), 1, a+(q*l.enclave_layered_batch*l.size*l.size), k, b, n, 1, c, n);  // k is changed
           }
@@ -893,7 +969,7 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
     }
   }
   //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
-
+  // print_array(&l_output[0],100,0,"sgx after mult, before batchnorm forward input");
   if (l.batch_normalize) {
     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
     forward_batchnorm_layer(l, net);
@@ -903,6 +979,7 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
     auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
     add_bias(&l_output[0], &l_biases[0], l.batch, l.n, l.out_h * l.out_w);
   }
+  // print_array(&l_output[0],100,0,"sgx after mult, batchnorm before activation forward input");
   activate_array(&l_output[0], l.outputs * l.batch, l.activation);
   l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
   /* if (l.binary || l.xnor)
@@ -932,14 +1009,23 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
       auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
       gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
     }
-
+    // if (net.index == 7) {
+    //   std::string text = std::string("SGX convolution delta after gradient on activation layer ") + std::to_string(net.index);
+    //   print_array(&l_delta[0],2*l.outputs,0,text.c_str());
+    // }
     if(l.batch_normalize){
+        // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+        // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates bn before");
         l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
         backward_batchnorm_layer(l, net);
+        auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+        print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
         l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
     } else {
       auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+      // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates before");
       backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.n, k);
+      // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
       l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
     }
 
@@ -1010,9 +1096,11 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
             }
         }
     }
+    // print_array(&l_weight_updates[0], l.nweights, 0, "SGX after conv layer weight updates");
     l.weight_updates->setItemsInRange(0, l.weight_updates->getBufferSize(),l_weight_updates);
     l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
     if (net.delta != nullptr) {
+      // print_array(&net_delta[0], l.batch*l.inputs, 0, "SGX after conv layer net delta");
       net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
     }
     //LOG_DEBUG("after backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
@@ -1026,11 +1114,15 @@ void update_convolutional_layer(convolutional_layer& l, update_args a)
     float momentum = a.momentum;
     float decay = a.decay;
     int batch = a.batch;
+    float clip = a.grad_clip;
     //LOG_DEBUG("lr:%f,moment:%f,decay:%f,batch:%d total weights:%d\n",learning_rate,momentum,decay,batch,l.nweights)
     //LOG_DEBUG("before update 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     {
       auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
       auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+      if (clip != 0) {
+        constrain_cpu(l.n,clip,&l_bias_updates[0],1);    
+      }
       axpy_cpu(l.n, learning_rate/batch, &l_bias_updates[0], 1, &l_biases[0], 1);
       scal_cpu(l.n, momentum, &l_bias_updates[0], 1);
       l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(),l_bias_updates);
@@ -1040,6 +1132,9 @@ void update_convolutional_layer(convolutional_layer& l, update_args a)
     if(l.scales){
         auto l_scale_updates = l.scale_updates->getItemsInRange(0, l.scale_updates->getBufferSize());
         auto l_scales = l.scales->getItemsInRange(0, l.scales->getBufferSize());
+        if (clip != 0) {
+          constrain_cpu(l.n,clip,&l_scale_updates[0],1);
+        }
         axpy_cpu(l.n, learning_rate/batch, &l_scale_updates[0], 1, &l_scales[0], 1);
         scal_cpu(l.n, momentum, &l_scale_updates[0], 1);
         l.scale_updates->setItemsInRange(0, l.scale_updates->getBufferSize(),l_scale_updates);
@@ -1049,6 +1144,9 @@ void update_convolutional_layer(convolutional_layer& l, update_args a)
     //LOG_DEBUG("before update 237 and 121 weight updates are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
     auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
     auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
+    if (clip != 0) {
+      constrain_cpu(l.nweights,clip,&l_weight_updates[0],1);
+    }
     axpy_cpu(l.nweights, -decay*batch, &l_weights[0], 1, &l_weight_updates[0], 1);
     //LOG_DEBUG("here update 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("here update 237 and 121 weight updates are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])

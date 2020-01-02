@@ -22,7 +22,10 @@ void forward_dropout_layer_gpu(dropout_layer layer, network net)
     cuda_random(layer.rand_gpu, size);
     #else
     // fill gpu
-    cuda_push_array(layer.rand_gpu, layer.rand, size)
+    for(int i = 0; i < size; ++i){
+        layer.rand[i] = rand_uniform(*(layer.layer_rng),0, 1);
+    }
+    cuda_push_array(layer.rand_gpu, layer.rand, size);
     #endif
     /*
     int i;

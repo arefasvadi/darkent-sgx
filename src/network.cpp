@@ -64,7 +64,11 @@ network *load_network(char *cfg, char *weights, int clear)
 
 size_t get_current_batch(network *net)
 {
+    #ifdef USE_SGX
+    size_t batch_num = (*net->seen)/(net->batch*net->enclave_subdivisions);
+    #else
     size_t batch_num = (*net->seen)/(net->batch*net->subdivisions);
+    #endif
     return batch_num;
 }
 
@@ -242,7 +246,11 @@ void update_network(network *netp)
     network net = *netp;
     int i;
     update_args a = {0};
+    #ifndef USE_SGX
     a.batch = net.batch*net.subdivisions;
+    #else
+    a.batch = net.batch*net.enclave_subdivisions;
+    #endif
     a.learning_rate = get_current_rate(netp);
     a.momentum = net.momentum;
     a.decay = net.decay;
@@ -250,6 +258,7 @@ void update_network(network *netp)
     a.B1 = net.B1;
     a.B2 = net.B2;
     a.eps = net.eps;
+    a.grad_clip = net.gradient_clip;
     ++*net.t;
     a.t = *net.t;
 
@@ -276,7 +285,7 @@ void calc_network_cost(network *netp)
         }
     }
     *net.cost = sum/count;
-    //LOG_DEBUG("Cost is :%f and count:%d\n",*net.cost,count)
+    LOG_DEBUG(COLORED_STR(BRIGHT_RED,"Cost is :%f and count:%d\n"),*net.cost,count)
 }
 
 #ifndef USE_SGX_LAYERWISE
@@ -673,6 +682,26 @@ void free_detections(detection *dets, int n)
     free(dets);
 }
 
+void print_array(const float* x,const uint32_t len,const int start,const char* text) {
+    std::string temp = std::string(text)+std::string("[\n");
+    bool printed = false;
+    int last_start = 0;
+    for (uint32_t i=0;i<len;++i) {
+        temp += std::string("(")+std::to_string(start+i) + std::string(",") + std::to_string(x[i]) + std::string("),");
+        if (i-last_start == 99) {
+            last_start=i+1;
+            temp += std::string("]\n");
+            LOG_DEBUG("%s",temp.c_str())
+            temp = std::string("[\n");
+        }
+    }
+    if (last_start < len) {
+        temp += std::string("]\n");
+        LOG_DEBUG("%s",temp.c_str())
+    }
+    
+}
+
 #ifndef USE_SGX
 float *network_predict_image(network *net, image im)
 {
@@ -912,12 +941,12 @@ float *network_output(network *net)
 void forward_network_gpu(network *netp)
 {
     network net = *netp;
+    //LOG_DEBUG("setting device to %d\n",net.gpu_index)
     cuda_set_device(net.gpu_index);
     cuda_push_array(net.input_gpu, net.input, net.inputs*net.batch);
     if(net.truth){
         cuda_push_array(net.truth_gpu, net.truth, net.truths*net.batch);
     }
-
     int i;
     for(i = 0; i < net.n; ++i){
         net.index = i;
@@ -974,6 +1003,7 @@ void update_network_gpu(network *netp)
     a.B1 = net.B1;
     a.B2 = net.B2;
     a.eps = net.eps;
+    a.grad_clip     = net.gradient_clip;
     ++*net.t;
     a.t = (*net.t);
 
@@ -1277,6 +1307,50 @@ void pull_network_output(network *net)
 }
 
 #endif
+
+uint64_t
+count_layer_paramas_bytes(const layer &l) {
+  uint64_t total_bytes = 0;
+  if (l.type == CONNECTED) {
+    total_bytes = (l.nbiases + l.nweights) * sizeof(float);
+    if (l.batch_normalize) {
+      total_bytes += (3 * l.nbiases) * sizeof(float);
+    }
+  } else if (l.type == CONVOLUTIONAL) {
+    total_bytes = (l.nbiases + l.nweights) * sizeof(float);
+    if (l.batch_normalize) {
+      total_bytes += (3 * l.nbiases) * sizeof(float);
+    }
+  } else if (l.type == BATCHNORM) {
+    total_bytes = (l.c) * 3 * sizeof(float);
+  } else {
+    LOG_ERROR("For layer %s not implemented\n", get_layer_string(l.type))
+    abort();
+  }
+  return total_bytes;
+}
+
+uint64_t
+count_layer_paramas_updates_bytes(const layer &l) {
+    uint64_t total_bytes = count_layer_paramas_bytes(l);
+    if (l.type == CONNECTED) {
+    total_bytes += (l.nbiases + l.nweights) * sizeof(float);
+    if (l.batch_normalize) {
+      total_bytes += (l.nbiases) * sizeof(float);
+    }
+  } else if (l.type == CONVOLUTIONAL) {
+    total_bytes += (l.nbiases + l.nweights) * sizeof(float);
+    if (l.batch_normalize) {
+      total_bytes += (l.nbiases) * sizeof(float);
+    }
+  } else if (l.type == BATCHNORM) {
+    total_bytes += (l.c) * sizeof(float);
+  } else {
+    LOG_ERROR("For layer %s not implemented\n", get_layer_string(l.type))
+    abort();
+  }
+  return total_bytes;
+}
 
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)
 network_blocked *load_network_blocked(char *cfg, char *weights, int clear) {

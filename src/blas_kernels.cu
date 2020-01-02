@@ -198,6 +198,9 @@ __global__ void normalize_kernel(int N, float *x, float *mean, float *variance, 
     int f = (index/spatial)%filters;
     
     x[index] = (x[index] - mean[f])/(sqrtf(variance[f] + .00001f));
+    // makaing it consistent with cpu part in sgx
+    // x[index] = (x[index] - mean[f])/(sqrtf(variance[f] + .000001f));
+    
 }
 
 __global__ void normalize_delta_kernel(int N, float *x, float *mean, float *variance, float *mean_delta, float *variance_delta, int batch, int filters, int spatial, float *delta)

@@ -38,6 +38,13 @@ layer make_batchnorm_layer(int batch, int w, int h, int c)
 
     l.forward = forward_batchnorm_layer;
     l.backward = backward_batchnorm_layer;
+
+#if defined(SGX_VERIFIES) && defined(GPU)
+    l.forward_gpu_sgx_verifies = forward_batchnorm_gpu_sgx_verifies_fbv; 
+    l.backward_gpu_sgx_verifies = backward_batchnorm_gpu_sgx_verifies_fbv;
+    l.create_snapshot_for_sgx = create_batchnorm_snapshot_for_sgx_fbv;
+#endif 
+
 #ifdef GPU
     l.forward_gpu = forward_batchnorm_layer_gpu;
     l.backward_gpu = backward_batchnorm_layer_gpu;
@@ -292,7 +299,16 @@ void backward_batchnorm_layer(layer& l, network& net)
 
    { 
         auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.biases->getBufferSize());
+        // LOG_DEBUG("SGX batchnorm back batch:%d,out_c:%d,out_w:%d,out_h:%d\n", l.batch, l.out_c, l.out_w,l.out_h)
+        // if (net.index == 7) {
+        //     std::string text = std::string("SGX bactnorm delta after gradient on activation layer ") + std::to_string(net.index);
+        //     print_array(&l_delta[0],1*l.outputs,0,text.c_str());
+        //     print_array(&l_bias_updates[0], l.nbiases, 0, "SGX bactnorm forw bias updates before");
+        // }
         backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.out_c, l.out_w*l.out_h);
+        // if (net.index == 7) {
+        //     print_array(&l_bias_updates[0], l.nbiases, 0, "SGX bactnorm forw bias updates after");
+        // }
         l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
     }
     {
@@ -330,17 +346,54 @@ void backward_batchnorm_layer(layer& l, network& net)
     l.delta->setItemsInRange(0, l.delta->getBufferSize(), l_delta);
 }
 #endif
+
+#if defined(SGX_VERIFIES) && defined(GPU)
+    void forward_batchnorm_gpu_sgx_verifies_fbv     (struct layer l, struct network net) {
+        forward_batchnorm_layer_gpu(l,net);
+    }
+    void backward_batchnorm_gpu_sgx_verifies_fbv(struct layer l, struct network net) {
+        backward_batchnorm_layer_gpu(l,net);
+    }
+    // void update_batchnorm_gpu_sgx_verifies_fbv(struct layer l, update_args a) {
+    //     update_batchnorm_layer_gpu(l,a);
+    // }
+
+    void create_batchnorm_snapshot_for_sgx_fbv(struct layer& l, struct network& net, uint8_t** out, uint8_t** sha256_out) {
+        if (gpu_index >= 0) {
+            pull_batchnorm_layer(l);
+        }
+        int total_bytes = count_layer_paramas_bytes(l);
+        size_t buff_ind = 0;
+        *out = new uint8_t[total_bytes];
+        *sha256_out = new uint8_t[SHA256_DIGEST_LENGTH];
+        
+        std::memcpy((*out+buff_ind),l.scale_updates,l.c*sizeof(float));
+        buff_ind += l.c*sizeof(float);
+        std::memcpy((*out+buff_ind),l.rolling_mean,l.c*sizeof(float));
+        buff_ind += l.c*sizeof(float);
+        std::memcpy((*out+buff_ind),l.rolling_variance,l.c*sizeof(float));
+        buff_ind += l.c*sizeof(float);
+        if (buff_ind != total_bytes) {
+                LOG_ERROR("size mismatch\n")
+                abort();
+        }
+        gen_sha256(*out,total_bytes,*sha256_out);
+    }
+#endif
+
 #ifdef GPU
 
 void pull_batchnorm_layer(layer l)
 {
     cuda_pull_array(l.scales_gpu, l.scales, l.c);
+    cuda_pull_array(l.scale_updates_gpu, l.scale_updates, l.c);
     cuda_pull_array(l.rolling_mean_gpu, l.rolling_mean, l.c);
     cuda_pull_array(l.rolling_variance_gpu, l.rolling_variance, l.c);
 }
 void push_batchnorm_layer(layer l)
 {
     cuda_push_array(l.scales_gpu, l.scales, l.c);
+    cuda_push_array(l.scale_updates_gpu, l.scale_updates, l.c);
     cuda_push_array(l.rolling_mean_gpu, l.rolling_mean, l.c);
     cuda_push_array(l.rolling_variance_gpu, l.rolling_variance, l.c);
 }
@@ -383,15 +436,16 @@ void forward_batchnorm_layer_gpu(layer l, network net)
         normalize_gpu(l.output_gpu, l.mean_gpu, l.variance_gpu, l.batch, l.out_c, l.out_h*l.out_w);
         copy_gpu(l.outputs*l.batch, l.output_gpu, 1, l.x_norm_gpu, 1);
 
-        scale_bias_gpu(l.output_gpu, l.scales_gpu, l.batch, l.out_c, l.out_h*l.out_w);
-        add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.out_c, l.out_w*l.out_h);
+        // scale_bias_gpu(l.output_gpu, l.scales_gpu, l.batch, l.out_c, l.out_h*l.out_w);
+        // add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.out_c, l.out_w*l.out_h);
 #endif
     } else {
         normalize_gpu(l.output_gpu, l.rolling_mean_gpu, l.rolling_variance_gpu, l.batch, l.out_c, l.out_h*l.out_w);
-        scale_bias_gpu(l.output_gpu, l.scales_gpu, l.batch, l.out_c, l.out_h*l.out_w);
-        add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.out_c, l.out_w*l.out_h);
+        // scale_bias_gpu(l.output_gpu, l.scales_gpu, l.batch, l.out_c, l.out_h*l.out_w);
+        // add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.out_c, l.out_w*l.out_h);
     }
-
+    scale_bias_gpu(l.output_gpu, l.scales_gpu, l.batch, l.out_c, l.out_h*l.out_w);
+    add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.out_c, l.out_w*l.out_h);
 }
 
 void backward_batchnorm_layer_gpu(layer l, network net)
@@ -424,7 +478,21 @@ void backward_batchnorm_layer_gpu(layer l, network net)
             l.variance_gpu);
     copy_gpu(l.outputs*l.batch, l.x_norm_gpu, 1, l.delta_gpu, 1);
 #else
+    // LOG_DEBUG("GPU batchnorm back batch:%d,out_c:%d,out_w:%d,out_h:%d\n", l.batch, l.out_c, l.out_w,l.out_h)
+    // if (net.index == 7) {
+    //     cuda_pull_array(l.delta_gpu,l.delta,l.outputs*l.batch);
+    //     std::string text = std::string("GPU bactnorm delta after gradient on activation layer ") + std::to_string(net.index);
+    //     print_array(l.delta,1*l.outputs,0,text.c_str());
+    //     cuda_pull_array(l.bias_updates_gpu, l.bias_updates, l.nbiases);
+    //     print_array(l.bias_updates, l.nbiases, 0, "GPU bactnorm forw bias updates before");
+    // }
+
     backward_bias_gpu(l.bias_updates_gpu, l.delta_gpu, l.batch, l.out_c, l.out_w*l.out_h);
+    // if (net.index == 7) {
+    //     cuda_pull_array(l.bias_updates_gpu, l.bias_updates, l.nbiases);
+    //     print_array(l.bias_updates, l.nbiases, 0, "GPU bactnorm forw bias updates after");
+    // }
+
     backward_scale_gpu(l.x_norm_gpu, l.delta_gpu, l.batch, l.out_c, l.out_w*l.out_h, l.scale_updates_gpu);
 
     scale_bias_gpu(l.delta_gpu, l.scales_gpu, l.batch, l.out_c, l.out_h*l.out_w);

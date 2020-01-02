@@ -1,6 +1,6 @@
-#ifndef SGX_VERIFIES
-int gpu_index = 0;
-#endif
+// #ifndef SGX_VERIFIES
+// int gpu_index = 0;
+// #endif
 
 #ifdef GPU
 
@@ -34,18 +34,18 @@ void check_error(cudaError_t status)
     {   
         const char *s = cudaGetErrorString(status);
         char buffer[256];
-        printf("CUDA Error: %s\n", s);
+        printf("CUDA Error: %s\nerror_code:%d\n", s,status);
         assert(0);
-        snprintf(buffer, 256, "CUDA Error: %s", s);
+        snprintf(buffer, 256, "CUDA Error: %s\nerror_code:%d", s,status);
         error(buffer);
     } 
     if (status2 != cudaSuccess)
     {   
-        const char *s = cudaGetErrorString(status);
+        const char *s = cudaGetErrorString(status2);
         char buffer[256];
-        printf("CUDA Error Prev: %s\n", s);
+        printf("CUDA Error Prev: %s\nerror_code:%d\n", s,status2);
         assert(0);
-        snprintf(buffer, 256, "CUDA Error Prev: %s", s);
+        snprintf(buffer, 256, "CUDA Error Prev: %s\nerror_code:%d", s,status2);
         error(buffer);
     } 
 }
@@ -82,10 +82,19 @@ cublasHandle_t blas_handle()
     static int init[16] = {0};
     static cublasHandle_t handle[16];
     int i = cuda_get_device();
-    if(!init[i]) {
-        cublasCreate(&handle[i]);
-        init[i] = 1;
-    }
+  	cublasStatus_t stat;
+    int version = 0;
+    cudaRuntimeGetVersion(&version);
+    // LOG_DEBUG("getting handle for device %d\n",i);
+        if (!init[i]) {
+          stat = cublasCreate(&handle[i]);
+          if (stat != CUBLAS_STATUS_SUCCESS) {
+            LOG_ERROR("CUBLAS initialization failed with error code:%d in version:%d\n",
+            stat,version);
+            abort();
+          }
+          init[i] = 1;
+        }
     return handle[i];
 }
 

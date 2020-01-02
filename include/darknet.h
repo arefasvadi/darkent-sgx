@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include "rand/PRNG.h"
 #ifndef USE_SGX
 #include <pthread.h>
 #endif
@@ -114,6 +115,7 @@ typedef struct{
     float B2;
     float eps;
     int t;
+    float grad_clip;
 } update_args;
 
 struct network;
@@ -136,6 +138,7 @@ struct layer{
     void (*forward_gpu_sgx_verifies)   (struct layer, struct network);
     void (*backward_gpu_sgx_verifies)  (struct layer, struct network);
     void (*update_gpu_sgx_verifies)    (struct layer, update_args);
+    void (*create_snapshot_for_sgx) (struct layer&, struct network&, uint8_t** out, uint8_t**sha256_out);
     #endif
     int batch_normalize;
     int shortcut;
@@ -192,6 +195,7 @@ struct layer{
     int tanh;
     int *mask;
     int total;
+    int enclave_layered_batch;
 
     float alpha;
     float beta;
@@ -506,6 +510,7 @@ typedef struct network{
     float clip;
     std::shared_ptr<PRNG> iter_batch_rng;
     std::shared_ptr<PRNG> layer_rng_deriver;
+    float gradient_clip;
 
 #ifdef GPU
     float *input_gpu;
@@ -643,6 +648,7 @@ void axpy_cpu(int N, float ALPHA, float *X, int INCX, float *Y, int INCY);
 void copy_cpu(int N, float *X, int INCX, float *Y, int INCY);
 void scal_cpu(int N, float ALPHA, float *X, int INCX);
 void fill_cpu(int N, float ALPHA, float * X, int INCX);
+void constrain_cpu(int N, float ALPHA, float *X, int INCX);
 void normalize_cpu(float *x, float *mean, float *variance, int batch, int filters, int spatial);
 void softmax(float *input, int n, float temp, int stride, float *output);
 
@@ -721,7 +727,7 @@ void save_weights_upto_encrypted(network *net, size_t *index, int cutoff);
 void load_weights_upto_encrypted(network *net, size_t *index, int start, int cutoff);
 #endif
 
-
+void print_array(const float* x,const uint32_t len,const int start,const char* text);
 void zero_objectness(layer l);
 void get_region_detections(layer l, int w, int h, int netw, int neth, float thresh, int *map, float tree_thresh, int relative, detection *dets);
 int get_yolo_detections(layer l, int w, int h, int netw, int neth, float thresh, int *map, int relative, detection *dets);
@@ -796,6 +802,11 @@ void do_nms_sort(detection *dets, int total, int classes, float thresh);
 
 matrix make_matrix(int rows, int cols);
 
+uint64_t
+count_layer_paramas_bytes(const layer &l);
+
+uint64_t
+count_layer_paramas_updates_bytes(const layer &l);
 #ifdef OPENCV
 void *open_video_stream(const char *f, int c, int w, int h, int fps);
 image get_image_from_stream(void *p);
@@ -847,9 +858,14 @@ float mean_array(float *a, int n);
 float sum_array(float *a, int n);
 void normalize_array(float *a, int n);
 int *read_intlist(char *s, int *n, int d);
+
 size_t rand_size_t();
 float rand_normal();
 float rand_uniform(float min, float max);
+
+size_t rand_size_t(PRNG&);
+float rand_normal(PRNG&);
+float rand_uniform(PRNG&,float min, float max);
 
 #if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
     struct layer{
@@ -1207,6 +1223,7 @@ typedef struct network{
     float clip;
     std::shared_ptr<PRNG> iter_batch_rng;
     std::shared_ptr<PRNG> layer_rng_deriver;
+    float gradient_clip;
 } network;
 
 #endif

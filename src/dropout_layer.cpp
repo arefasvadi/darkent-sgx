@@ -5,9 +5,10 @@
 #include <stdio.h>
 
 #ifndef USE_SGX_LAYERWISE
-dropout_layer make_dropout_layer(int batch, int inputs, float probability)
+dropout_layer make_dropout_layer(int batch, int inputs, float probability,PRNG& net_layer_rng_deriver)
 {
     dropout_layer l = {};
+    l.layer_rng = std::make_shared<PRNG>(generate_random_seed_from(net_layer_rng_deriver));
     l.type = DROPOUT;
     l.probability = probability;
     l.inputs = inputs;
@@ -17,6 +18,14 @@ dropout_layer make_dropout_layer(int batch, int inputs, float probability)
     l.scale = 1./(1.-probability);
     l.forward = forward_dropout_layer;
     l.backward = backward_dropout_layer;
+    
+    #if defined(SGX_VERIFIES) && defined(GPU)
+    l.forward_gpu_sgx_verifies = forward_dropout_gpu_sgx_verifies_fbv; 
+    l.backward_gpu_sgx_verifies = backward_dropout_gpu_sgx_verifies_fbv;
+    // l.update_gpu_sgx_verifies = update_dropout_gpu_sgx_verifies_fbv;
+    // l.create_snapshot_for_sgx = create_dropout_snapshot_for_sgx_fbv;
+    #endif 
+    
     #ifdef GPU
     l.forward_gpu = forward_dropout_layer_gpu;
     l.backward_gpu = backward_dropout_layer_gpu;
@@ -25,6 +34,58 @@ dropout_layer make_dropout_layer(int batch, int inputs, float probability)
     fprintf(stderr, "dropout       p = %.2f               %4d  ->  %4d\n", probability, inputs, inputs);
     return l;
 } 
+#endif
+
+#if defined(SGX_VERIFIES) && defined(GPU)
+void
+forward_dropout_gpu_sgx_verifies_fbv(dropout_layer l, network net) {
+  forward_dropout_layer_gpu(l, net);
+}
+void
+backward_dropout_gpu_sgx_verifies_fbv(dropout_layer l, network net) {
+  backward_dropout_layer_gpu(l, net);
+}
+// void
+// update_dropout_gpu_sgx_verifies_fbv(dropout_layer l, update_args a) {
+//   update_dropout_layer_gpu(l, a);
+// }
+
+// void
+// create_dropout_snapshot_for_sgx_fbv(struct layer &  l,
+//                                           struct network &net,
+//                                           uint8_t **      out,
+//                                           uint8_t **      sha256_out) {
+//   if (gpu_index >= 0) {
+//     pull_convolutional_layer(l);
+//   }
+//   int total_bytes = (l.nbiases + l.nweights) * sizeof(float);
+//   if (l.batch_normalize) {
+//     total_bytes += (3 * l.nbiases) * sizeof(float);
+//   }
+//   size_t buff_ind = 0;
+//   *out            = new uint8_t[total_bytes];
+//   *sha256_out     = new uint8_t[SHA256_DIGEST_LENGTH];
+
+//   std::memcpy((*out + buff_ind), l.biases, l.nbiases * sizeof(float));
+//   buff_ind += l.nbiases * sizeof(float);
+//   std::memcpy((*out + buff_ind), l.weights, l.nweights * sizeof(float));
+//   buff_ind += l.nweights * sizeof(float);
+
+//   if (l.batch_normalize) {
+//     std::memcpy((*out + buff_ind), l.scales, l.nbiases * sizeof(float));
+//     buff_ind += l.nbiases * sizeof(float);
+//     std::memcpy((*out + buff_ind), l.rolling_mean, l.nbiases * sizeof(float));
+//     buff_ind += l.nbiases * sizeof(float);
+//     std::memcpy(
+//         (*out + buff_ind), l.rolling_variance, l.nbiases * sizeof(float));
+//     buff_ind += l.nbiases * sizeof(float);
+//   }
+//   if (buff_ind != total_bytes) {
+//     LOG_ERROR("size mismatch\n")
+//     abort();
+//   }
+//   gen_sha256(*out, total_bytes, *sha256_out);
+// }
 #endif
 
 #ifndef USE_SGX_LAYERWISE
@@ -45,7 +106,8 @@ void forward_dropout_layer(dropout_layer& l, network& net)
     int i;
     if (!net.train) return;
     for(i = 0; i < l.batch * l.inputs; ++i){
-        float r = rand_uniform(0, 1);
+        // float r = rand_uniform(0, 1);
+        float r = rand_uniform(*(l.layer_rng),0, 1);
         l.rand[i] = r;
         if(r < l.probability) net.input[i] = 0;
         else net.input[i] *= l.scale;
@@ -67,9 +129,10 @@ void backward_dropout_layer(dropout_layer& l, network& net)
 #endif
 
 #if defined(USE_SGX) && defined(USE_SGX_LAYERWISE)
-dropout_layer make_dropout_layer(int batch, int inputs, float probability)
+dropout_layer make_dropout_layer(int batch, int inputs, float probability,PRNG& net_layer_rng_deriver)
 {
     dropout_layer l = {};
+    l.layer_rng = std::make_shared<PRNG>(generate_random_seed_from(net_layer_rng_deriver));
     l.type = DROPOUT;
     l.probability = probability;
     l.inputs = inputs;
@@ -91,7 +154,8 @@ void forward_dropout_layer(dropout_layer& l, network& net)
     auto l_rand = l.rand->getItemsInRange(0, l.rand->getBufferSize());
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
     for(i = 0; i < l.batch * l.inputs; ++i){
-        float r = rand_uniform(0, 1);
+        // float r = rand_uniform(0, 1);
+        float r = rand_uniform(*(l.layer_rng),0, 1);
         l_rand[i] = r;
         if(r < l.probability) net_input[i] = 0;
         else net_input[i] *= l.scale;

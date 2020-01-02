@@ -213,7 +213,7 @@ typedef struct size_params_blocked{
 } */
 
 
-convolutional_layer parse_convolutional(list *options, size_params params)
+convolutional_layer parse_convolutional(list *options, size_params params,PRNG& net_layer_rng_deriver)
 {
     int n = option_find_int(options, "filters",1);
     int size = option_find_int(options, "size",1);
@@ -240,10 +240,10 @@ convolutional_layer parse_convolutional(list *options, size_params params)
     int binary = option_find_int_quiet(options, "binary", 0);
     int xnor = option_find_int_quiet(options, "xnor", 0);
 
-    convolutional_layer layer = make_convolutional_layer(batch,h,w,c,n,groups,size,stride,padding,activation, batch_normalize, binary, xnor, params.net->adam);
+    convolutional_layer layer = make_convolutional_layer(batch,h,w,c,n,groups,size,stride,padding,activation, batch_normalize, binary, xnor, 
+    params.net->adam,net_layer_rng_deriver);
     layer.flipped = option_find_int_quiet(options, "flipped", 0);
     layer.dot = option_find_float_quiet(options, "dot", 0);
-
     return layer;
 }
 
@@ -327,14 +327,14 @@ convolutional1D_layer parse_convolutional1D(list *options, size_params params)
     return l;
 } */
 
-layer parse_connected(list *options, size_params params)
+layer parse_connected(list *options, size_params params,PRNG& net_layer_rng_deriver)
 {
     int output = option_find_int(options, "output",1);
     char *activation_s = option_find_str(options, "activation", "logistic");
     ACTIVATION activation = get_activation(activation_s);
     int batch_normalize = option_find_int_quiet(options, "batch_normalize", 0);
 
-    layer l = make_connected_layer(params.batch, params.inputs, output, activation, batch_normalize, params.net->adam);
+    layer l = make_connected_layer(params.batch, params.inputs, output, activation, batch_normalize, params.net->adam,net_layer_rng_deriver);
     return l;
 }
 
@@ -655,10 +655,10 @@ avgpoolx_layer parse_avgpoolx1D(list *options, size_params params)
     return layer;
 }
 
-dropout_layer parse_dropout(list *options, size_params params)
+dropout_layer parse_dropout(list *options, size_params params,PRNG& net_layer_rng_deriver)
 {
     float probability = option_find_float(options, "probability", .5);
-    dropout_layer layer = make_dropout_layer(params.batch, params.inputs, probability);
+    dropout_layer layer = make_dropout_layer(params.batch, params.inputs, probability,net_layer_rng_deriver);
     layer.out_w = params.w;
     layer.out_h = params.h;
     layer.out_c = params.c;
@@ -814,6 +814,7 @@ void parse_net_options(list *options, network *net)
     int enclave_subdivs = option_find_int(options, "enclave_subdivisions",1);
     net->time_steps = option_find_int_quiet(options, "time_steps",1);
     net->notruth = option_find_int_quiet(options, "notruth",0);
+    net->gradient_clip = option_find_float_quiet(options, "gradient_update_clip", 0);
     #if defined(SGX_VERIFIES)
     net->batch /= subdivs;
     #elif defined (USE_SGX)
@@ -915,18 +916,16 @@ network *parse_network_cfg(char *filename)
       LOG_ERROR("network is empty!" "\n");
       abort();
     }
+    
     network *net = make_network(sections->size - 1);
+    net->gpu_index = gpu_index;
+    size_params params;
     #if defined(USE_SGX)
-    set_network_batch_randomness(0,*net);
-    std::array<uint64_t, 16> temp;
+    set_network_batch_randomness(0,*net);    
     #elif defined(SGX_VERIFIES)
-    std::array<uint64_t, 16> temp;
     net->iter_batch_rng = batch_inp_rng;
     net->layer_rng_deriver = batch_layers_rng;
     #endif
-
-    net->gpu_index = gpu_index;
-    size_params params;
 
     section *s = (section *)n->val;
     list *options = s->options;
@@ -961,14 +960,15 @@ network *parse_network_cfg(char *filename)
         options = s->options;
         layer l = {};
         LAYER_TYPE lt = string_to_layer_type(s->type);
-#if defined(USE_SGX) || defined(SGX_VERIFIES)
-        for (int i = 0; i < 16; ++i) {
-          temp[i] = net->layer_rng_deriver->getRandomUint64();
-        }
-        l.layer_rng = std::make_shared<PRNG>(temp);
-#endif
+// #if defined(USE_SGX) || defined(SGX_VERIFIES)
+//         std::array<uint64_t, 16> temp;
+//         for (int i = 0; i < 16; ++i) {
+//           temp[i] = net->layer_rng_deriver->getRandomUint64();
+//         }
+//         l.layer_rng = std::make_shared<PRNG>(temp);
+// #endif
         if(lt == CONVOLUTIONAL){
-            l = parse_convolutional(options, params);
+            l = parse_convolutional(options, params,*(net->layer_rng_deriver));
         } else if(lt == CONVOLUTIONAL1D){
             l = parse_convolutional1D(options, params);
         }
@@ -1003,7 +1003,7 @@ network *parse_network_cfg(char *filename)
             l = parse_crnn(options, params);
         } */
         else if(lt == CONNECTED){
-            l = parse_connected(options, params);
+            l = parse_connected(options, params,*(net->layer_rng_deriver));
         }else if(lt == CROP){
             l = parse_crop(options, params);
         }else if(lt == COST){
@@ -1060,7 +1060,7 @@ network *parse_network_cfg(char *filename)
             l = parse_shortcut(options, params, net);
             //#endif
         }else if(lt == DROPOUT){
-            l = parse_dropout(options, params);
+            l = parse_dropout(options, params,*(net->layer_rng_deriver));
             l.output = net->layers[count-1].output;
             l.delta = net->layers[count-1].delta;
 #ifdef GPU

@@ -45,6 +45,11 @@ maxpool_layer make_maxpool_layer(int batch, int h, int w, int c, int size, int s
     l.delta =   (float*)calloc(output_size, sizeof(float));
     l.forward = forward_maxpool_layer;
     l.backward = backward_maxpool_layer;
+    #if defined(SGX_VERIFIES) && defined(GPU)
+    l.forward_gpu_sgx_verifies = forward_maxpool_gpu_sgx_verifies_fbv; 
+    l.backward_gpu_sgx_verifies = backward_maxpool_gpu_sgx_verifies_fbv;
+    // l.create_snapshot_for_sgx = create_maxpool_snapshot_for_sgx_fbv;
+    #endif 
     #ifdef GPU
     l.forward_gpu = forward_maxpool_layer_gpu;
     l.backward_gpu = backward_maxpool_layer_gpu;
@@ -136,6 +141,54 @@ void backward_maxpool_layer(maxpool_layer& l, network& net)
         net.delta[index] += l.delta[i];
     }
 }
+#endif
+
+#if defined(SGX_VERIFIES) && defined(GPU)
+void
+forward_maxpool_gpu_sgx_verifies_fbv(maxpool_layer l, network net) {
+  forward_maxpool_layer_gpu(l, net);
+}
+void
+backward_maxpool_gpu_sgx_verifies_fbv(maxpool_layer l, network net) {
+  backward_maxpool_layer_gpu(l, net);
+}
+
+// void
+// create_convolutional_snapshot_for_sgx_fbv(struct layer &  l,
+//                                           struct network &net,
+//                                           uint8_t **      out,
+//                                           uint8_t **      sha256_out) {
+//   if (gpu_index >= 0) {
+//     pull_convolutional_layer(l);
+//   }
+//   int total_bytes = (l.nbiases + l.nweights) * sizeof(float);
+//   if (l.batch_normalize) {
+//     total_bytes += (3 * l.nbiases) * sizeof(float);
+//   }
+//   size_t buff_ind = 0;
+//   *out            = new uint8_t[total_bytes];
+//   *sha256_out     = new uint8_t[SHA256_DIGEST_LENGTH];
+
+//   std::memcpy((*out + buff_ind), l.biases, l.nbiases * sizeof(float));
+//   buff_ind += l.nbiases * sizeof(float);
+//   std::memcpy((*out + buff_ind), l.weights, l.nweights * sizeof(float));
+//   buff_ind += l.nweights * sizeof(float);
+
+//   if (l.batch_normalize) {
+//     std::memcpy((*out + buff_ind), l.scales, l.nbiases * sizeof(float));
+//     buff_ind += l.nbiases * sizeof(float);
+//     std::memcpy((*out + buff_ind), l.rolling_mean, l.nbiases * sizeof(float));
+//     buff_ind += l.nbiases * sizeof(float);
+//     std::memcpy(
+//         (*out + buff_ind), l.rolling_variance, l.nbiases * sizeof(float));
+//     buff_ind += l.nbiases * sizeof(float);
+//   }
+//   if (buff_ind != total_bytes) {
+//     LOG_ERROR("size mismatch\n")
+//     abort();
+//   }
+//   gen_sha256(*out, total_bytes, *sha256_out);
+// }
 #endif
 
 #if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)

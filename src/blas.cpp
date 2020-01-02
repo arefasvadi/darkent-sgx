@@ -212,8 +212,9 @@ void normalize_cpu(float *x, float *mean, float *variance, int batch, int filter
         for(f = 0; f < filters; ++f){
             for(i = 0; i < spatial; ++i){
                 int index = b*filters*spatial + f*spatial + i;
-                //x[index] = (x[index] - mean[f])/(sqrt(variance[f]) + .000001f);
-                x[index] = (x[index] - mean[f])/(std::sqrt(variance[f] + .001f));
+                x[index] = (x[index] - mean[f])/(sqrt(variance[f]) + .00001f);
+                // this below was for idash and keras default
+                // x[index] = (x[index] - mean[f])/(std::sqrt(variance[f] + .001f));
             }
         }
     }
@@ -305,6 +306,15 @@ void fill_cpu(int N, float ALPHA, float *X, int INCX)
     // ocall_set_timing(timing_key,strlen(timing_key)+1 , 0, 1);
     // #endif
     // #endif
+}
+
+void constrain_cpu(int N, float ALPHA, float *X, int INCX)
+{
+    int i;
+    for(i = 0; i < N; ++i) {
+        X[i*INCX] = fminf(ALPHA, fmaxf(-ALPHA, X[i*INCX]));
+    }
+    
 }
 
 void deinter_cpu(int NX, float *X, int NY, float *Y, int B, float *OUT)

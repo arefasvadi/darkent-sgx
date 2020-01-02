@@ -684,6 +684,16 @@ int rand_int(int min, int max)
   return r;
 }
 
+int rand_int(PRNG& prng,int min, int max)
+{
+  if (max < min){
+    int s = min;
+    min = max;
+    max = s;
+  }
+  return prng.getRandomInt(min, max);
+}
+
 // From http://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 float rand_normal()
 {
@@ -702,6 +712,27 @@ float rand_normal()
   if(rand1 < 1e-100) rand1 = 1e-100;
   rand1 = -2 * log(rand1);
   rand2 = (rand() / ((double) RAND_MAX)) * TWO_PI;
+
+  return sqrt(rand1) * cos(rand2);
+}
+
+
+float rand_normal(PRNG& prng) {
+  static int    haveSpare = 0;
+  static double rand1, rand2;
+
+  if (haveSpare) {
+    haveSpare = 0;
+    return sqrt(rand1) * sin(rand2);
+  }
+
+  haveSpare = 1;
+
+  rand1 = prng.getRandomInt() / ((double)RAND_MAX);
+  if (rand1 < 1e-100)
+    rand1 = 1e-100;
+  rand1 = -2 * log(rand1);
+  rand2 = (prng.getRandomInt() / ((double)RAND_MAX)) * TWO_PI;
 
   return sqrt(rand1) * cos(rand2);
 }
@@ -729,6 +760,18 @@ size_t rand_size_t()
     ((size_t)(rand()&0xff) << 0);
 }
 
+size_t rand_size_t(PRNG& prng)
+{
+  return  ((size_t)(prng.getRandomInt()&0xff) << 56) | 
+    ((size_t)(prng.getRandomInt()&0xff) << 48) |
+    ((size_t)(prng.getRandomInt()&0xff) << 40) |
+    ((size_t)(prng.getRandomInt()&0xff) << 32) |
+    ((size_t)(prng.getRandomInt()&0xff) << 24) |
+    ((size_t)(prng.getRandomInt()&0xff) << 16) |
+    ((size_t)(prng.getRandomInt()&0xff) << 8) |
+    ((size_t)(prng.getRandomInt()&0xff) << 0);
+}
+
 float rand_uniform(float min, float max)
 {
   if(max < min){
@@ -739,10 +782,27 @@ float rand_uniform(float min, float max)
   return ((float)rand()/RAND_MAX * (max - min)) + min;
 }
 
+float rand_uniform(PRNG& prng,float min, float max)
+{
+  if(max < min){
+    float swap = min;
+    min = max;
+    max = swap;
+  }
+  return prng.getRandomFloat(min, max);
+}
+
 float rand_scale(float s)
 {
   float scale = rand_uniform(1, s);
   if(rand()%2) return scale;
+  return 1./scale;
+}
+
+float rand_scale(PRNG& prng,float s)
+{
+  float scale = rand_uniform(prng,1, s);
+  if(prng.getRandomInt() %2) return scale;
   return 1./scale;
 }
 

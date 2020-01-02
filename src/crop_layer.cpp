@@ -137,6 +137,8 @@ crop_layer make_crop_layer(int batch, int h, int w, int c, int crop_height,
 }
 
 void forward_crop_layer(crop_layer& l, network& net) {
+  LOG_ERROR("Crop layer has a different implementation than gpu!\n")
+  abort();
   int i, j, c, b, row, col;
   int index;
   int count = 0;

@@ -186,7 +186,14 @@ __global__ void forward_crop_layer_kernel(float *input, float *rand, int size, i
     cuda_random(layer.rand_gpu, layer.batch*8);
     #else
     // fill gpu beforehand
-    cuda_push_array(layer.rand_gpu, layer.rand, layer.batch*8)
+    // This is wrong
+    LOG_ERROR("Crop layer for gpu needs more work!\n");
+    abort();
+    int sz = layer.inputs*layer.batch;
+    for(int i = 0; i < sz; ++i){
+        layer.rand[i] = rand_uniform(*(layer.layer_rng),0, 1);
+    }
+    cuda_push_array(layer.rand_gpu, layer.rand, layer.batch*8);
     #endif
 
     float radians = layer.angle*3.14159265f/180.f;
