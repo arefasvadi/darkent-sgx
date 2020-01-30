@@ -160,6 +160,9 @@ void forward_dropout_layer(dropout_layer& l, network& net)
         if(r < l.probability) net_input[i] = 0;
         else net_input[i] *= l.scale;
     }
+    // if (net.index == 12) {
+    //     print_array(&l_rand[0],l.batch * l.inputs,0,"SGX dropout rand vals");
+    // }
     l.rand->setItemsInRange(0, l.rand->getBufferSize(),l_rand);
     net.input->setItemsInRange(0, net.input->getBufferSize(),net_input);
 }

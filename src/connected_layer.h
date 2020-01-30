@@ -10,12 +10,20 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
 void forward_connected_layer(layer& l, network& net);
 void backward_connected_layer(layer& l, network& net);
 void update_connected_layer(layer& l, update_args a);
-
+#if defined(USE_SGX) && defined(USE_SGX_LAYERWISE)
+#include "global-vars-trusted.h"
+void forward_connected_layer_verifies_frbmmv(layer& l, network& net);
+void backward_connected_layer_verifies_frbmmv(layer& l, network& net);
+#endif
 #if defined(SGX_VERIFIES) && defined(GPU)
-    void forward_connected_gpu_sgx_verifies_fbv     (struct layer, struct network);
-    void backward_connected_gpu_sgx_verifies_fbv    (struct layer, struct network);
-    void update_connected_gpu_sgx_verifies_fbv      (struct layer, update_args);
-    void create_connected_snapshot_for_sgx_fbv      (struct layer&, struct network&, uint8_t** out, uint8_t**sha256_out);
+    void forward_connected_gpu_sgx_verifies_     (struct layer, struct network);
+    void backward_connected_gpu_sgx_verifies_    (struct layer, struct network);
+    void update_connected_gpu_sgx_verifies_      (struct layer, update_args);
+    void create_connected_snapshot_for_sgx_      (struct layer&, struct network&, uint8_t** out, uint8_t**sha256_out);
+    void forward_connected_layer_gpu_frbmmv(layer l, network net);
+    void backward_connected_layer_gpu_frbmmv(layer l, network net);
+
+
 #endif
 
 #ifdef GPU

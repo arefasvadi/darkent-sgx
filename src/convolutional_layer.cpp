@@ -284,10 +284,10 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   }
 
 #if defined(SGX_VERIFIES) && defined(GPU)
-    l.forward_gpu_sgx_verifies = forward_convolutional_gpu_sgx_verifies_fbv; 
-    l.backward_gpu_sgx_verifies = backward_convolutional_gpu_sgx_verifies_fbv;
-    l.update_gpu_sgx_verifies = update_convolutional_gpu_sgx_verifies_fbv;
-    l.create_snapshot_for_sgx = create_convolutional_snapshot_for_sgx_fbv;
+    l.forward_gpu_sgx_verifies = forward_convolutional_gpu_sgx_verifies_; 
+    l.backward_gpu_sgx_verifies = backward_convolutional_gpu_sgx_verifies_;
+    l.update_gpu_sgx_verifies = update_convolutional_gpu_sgx_verifies_;
+    l.create_snapshot_for_sgx = create_convolutional_snapshot_for_sgx_;
 #endif 
 
 #ifdef GPU
@@ -684,21 +684,174 @@ image *get_weights(convolutional_layer l) {
 #endif
 
 #if defined(SGX_VERIFIES) && defined(GPU)
+
+void forward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net) {
+
+    fill_gpu(l.outputs*l.batch, 0, l.output_gpu, 1);
+    if(l.binary){
+        // binarize_weights_gpu(l.weights_gpu, l.n, l.c/l.groups*l.size*l.size, l.binary_weights_gpu);
+        // swap_binary(&l);
+        LOG_ERROR("binarize_weights_gpu not implemented\n")
+        abort();
+    }
+    if(l.xnor){
+        LOG_ERROR("binarize_weights_gpu not implemented\n")
+        abort();
+        // binarize_weights_gpu(l.weights_gpu, l.n, l.c/l.groups*l.size*l.size, l.binary_weights_gpu);
+        // swap_binary(&l);
+        // binarize_gpu(net.input_gpu, l.c*l.h*l.w*l.batch, l.binary_input_gpu);
+        // net.input_gpu = l.binary_input_gpu;
+    }
+
+    int i, j;
+    int m = l.n/l.groups;
+    int k = l.size*l.size*l.c/l.groups;
+    int n = l.out_w*l.out_h;
+    for(i = 0; i < l.batch; ++i){
+        for(j = 0; j < l.groups; ++j){
+            float *a = l.weights_gpu + j*l.nweights/l.groups;
+            float *b = net.workspace;
+            float *c = l.output_gpu + (i*l.groups + j)*n*m;
+            float *im = net.input_gpu + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+
+            if (l.size == 1){
+                b = im;
+            } else {
+                im2col_gpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
+            }
+            gemm_gpu(0,0,m,n,k,1,a,k,b,n,1,c,n);
+        }
+    }
+
+    // store the output of MM
+    if (train_iterations_snapshots_frbmmv.step_net_reports.count(gpu_iteration) == 0) {
+        train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration] = std::move(network_batch_step_snapshot_frbmmv_t());
+    }
+    auto& net_report = train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration];
+    if (net_report.net_layers_reports.count(net.index) == 0) {
+        net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
+        net_report.net_layers_reports[net.index].layer_forward_MM_outputs = std::vector<uint8_t>();
+        net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
+    }
+    auto& layer_report = net_report.net_layers_reports[net.index];
+    auto curr_out_size = layer_report.layer_forward_MM_outputs.size();
+    layer_report.layer_forward_MM_outputs.resize(curr_out_size+(l.outputs*l.batch*sizeof(float)));
+    cuda_pull_array(l.output_gpu, (float*)(layer_report.layer_forward_MM_outputs.data()+curr_out_size),l.outputs*l.batch);
+
+    if (l.batch_normalize) {
+        forward_batchnorm_layer_gpu(l, net);
+    } else {
+        add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.n, l.out_w*l.out_h);
+    }
+    
+    activate_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation);
+    
+    if(l.binary || l.xnor) swap_binary(&l);
+}
+
+void backward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net) {
+    if(l.smooth){
+        LOG_ERROR("smoothig should not be used\n");
+        abort();
+        // smooth_layer(l, 5, l.smooth);
+    }
+    //constrain_gpu(l.outputs*l.batch, 1, l.delta_gpu, 1);
+    gradient_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation, l.delta_gpu);
+    if(l.batch_normalize){
+        backward_batchnorm_layer_gpu(l, net);
+    } else {
+        backward_bias_gpu(l.bias_updates_gpu, l.delta_gpu, l.batch, l.n, l.out_w*l.out_h);
+    }
+    
+    float *original_input = net.input_gpu;
+    
+    if (train_iterations_snapshots_frbmmv.step_net_reports.count(gpu_iteration) == 0) {
+      train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration] = std::move(network_batch_step_snapshot_frbmmv_t());
+    }
+    auto& net_report = train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration];
+    if (net_report.net_layers_reports.count(net.index) == 0) {
+        net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
+        net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
+    }
+    auto& layer_report = net_report.net_layers_reports[net.index];
+    // if(l.xnor) net.input_gpu = l.binary_input_gpu;
+
+    int m = l.n/l.groups;
+    int n = l.size*l.size*l.c/l.groups;
+    int k = l.out_w*l.out_h;
+
+    int i, j;
+    
+    for(i = 0; i < l.batch; ++i){
+        for(j = 0; j < l.groups; ++j){
+            float *a = l.delta_gpu + (i*l.groups + j)*m*k;
+            float *b = net.workspace;
+            float *c = l.weight_updates_gpu + j*l.nweights/l.groups;
+
+            float *im  = net.input_gpu+(i*l.groups + j)*l.c/l.groups*l.h*l.w;
+            float *imd = net.delta_gpu+(i*l.groups + j)*l.c/l.groups*l.h*l.w;
+            if(l.size == 1){
+                b = im;
+            }
+            else {
+                im2col_gpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
+            }
+            gemm_gpu(0,1,m,n,k,1,a,k,b,k,1,c,n);
+
+            if (net.delta_gpu) {
+                if (l.binary || l.xnor) swap_binary(&l);
+                a = l.weights_gpu + j*l.nweights/l.groups;
+                b = l.delta_gpu + (i*l.groups + j)*m*k;
+                c = net.workspace;
+                if (l.size == 1) {
+                    c = imd;
+                }
+
+                gemm_gpu(1,0,n,k,m,1,a,n,b,k,0,c,k);
+                // store the output of MM
+                auto curr_out_size = layer_report.layer_backward_MM_prev_delta.size();
+                layer_report.layer_backward_MM_prev_delta.resize(curr_out_size+(l.size*l.size*l.c*l.out_h*l.out_w*sizeof(float)));
+                cuda_pull_array(c, (float*)(layer_report.layer_backward_MM_prev_delta.data()+curr_out_size),
+                  (l.size*l.size*l.c*l.out_h*l.out_w));
+
+                if (l.size != 1) {
+                    col2im_gpu(net.workspace, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
+                }
+                if(l.binary || l.xnor) {
+                    swap_binary(&l);
+                }
+            }
+            // if(l.xnor) gradient_array_gpu(original_input + i*l.c*l.h*l.w, l.c*l.h*l.w, HARDTAN, net.delta_gpu + i*l.c*l.h*l.w);
+        }
+    }
+
+}
+
 void
-forward_convolutional_gpu_sgx_verifies_fbv(convolutional_layer l, network net) {
-  forward_convolutional_layer_gpu(l, net);
+forward_convolutional_gpu_sgx_verifies_(convolutional_layer l, network net) {
+  if (*main_verf_task_variation_ == verf_variations_t::FRBV) {
+    forward_convolutional_layer_gpu(l, net);
+    return;
+  }
+  forward_convolutional_layer_gpu_frbmmv(l, net);
+  return;
 }
 void
-backward_convolutional_gpu_sgx_verifies_fbv(convolutional_layer l, network net) {
-  backward_convolutional_layer_gpu(l, net);
+backward_convolutional_gpu_sgx_verifies_(convolutional_layer l, network net) {
+  if (*main_verf_task_variation_ == verf_variations_t::FRBV) {
+    backward_convolutional_layer_gpu(l, net);
+    return;
+  }
+  backward_convolutional_layer_gpu_frbmmv(l, net);
+  return;
 }
 void
-update_convolutional_gpu_sgx_verifies_fbv(convolutional_layer l, update_args a) {
+update_convolutional_gpu_sgx_verifies_(convolutional_layer l, update_args a) {
   update_convolutional_layer_gpu(l, a);
 }
 
 void
-create_convolutional_snapshot_for_sgx_fbv(struct layer &  l,
+create_convolutional_snapshot_for_sgx_(struct layer &  l,
                                           struct network &net,
                                           uint8_t **      out,
                                           uint8_t **      sha256_out) {
@@ -759,7 +912,11 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   //l.weights = (float *)calloc(c / groups * n * size * size, sizeof(float));
   l.weights = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c / groups * n * size * size);
   //l.weight_updates = (float *)calloc(c / groups * n * size * size, sizeof(float));
-  if (global_training) l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c / groups * n * size * size);
+  if (global_training) {
+    l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c / groups * n * size * size);
+    l.right_rand_weight_updates = (double*)calloc(l.n/l.groups,sizeof(double));
+    l.input_rand_weight_updates = (float*)calloc(c / groups * size * size,sizeof(float));
+  }
 
   //l.biases = (float *)calloc(n, sizeof(float));
   l.biases = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(n);
@@ -900,8 +1057,129 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
     return l;
 }
 
+void convolutional_get_MM_output_left_compare(layer& l, network& net,std::vector<float> &rand_vec,
+                                              std::vector<float> &rand_right,float* result_out) {
+  int m = l.n / l.groups;
+  int k = l.size * l.size * l.c / l.groups;
+  int n = l.out_w * l.out_h;
+  std::vector<float> rand_left(m,0);
+  gemm(0,0,m,1,k,1,
+  result_out,k,
+  rand_vec.data(),1,
+  1,
+  rand_left.data(),1);
+  
+  if (rand_right.size()!=rand_left.size()) {
+        LOG_ERROR("size mismatch\n")
+        abort();
+  }
+  for (int i=0;i<rand_right.size();++i) {
+      if (std::fabs(rand_right[i]-rand_left[i]) > 0.000001f) {
+          LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+              i,rand_right[i],rand_left[i])
+          abort();
+      }
+  }
+}
+
+void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
+  if(l.binary){
+    LOG_ERROR("Binary feature not implemented!\n");
+    abort();
+  }
+  if (l.xnor) {
+    LOG_ERROR("XNOR feature not implemented!\n");
+    abort();
+  }
+  
+  int q = (l.c/l.groups) / l.enclave_layered_batch;
+  int r = (l.c/l.groups) % l.enclave_layered_batch;
+  auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+  auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+  auto n_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+  int i, j;
+  int m = l.n/l.groups;
+  int k = l.size*l.size*l.c/l.groups;
+  int n = l.out_w*l.out_h;
+  std::vector<float> randomized_vec(n);
+  for (int i=0;i<randomized_vec.size();++i) {
+    randomized_vec[i] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
+                std::numeric_limits<float>::max());
+  }
+  auto n_workspace = l.size != 1 ? std::unique_ptr<float[]>(
+                         new float[l.enclave_layered_batch * l.out_h * l.out_w
+                                   * l.size * l.size])
+                                 : std::unique_ptr<float[]>(nullptr);
+  for(i = 0; i < l.batch; ++i){
+    for(j = 0; j < l.groups; ++j){
+      std::vector<float> mm_randomized_output_right(m,0);
+      std::vector<float> mm_randomized_mid_right(k,0);
+      float *a = &l_weights[0] + j * l.nweights / l.groups;
+      float *b = nullptr; //&n_workspace[0];
+      float *c = &l_output[0] + (i * l.groups + j) * n * m;
+      float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+      if (l.size == 1) {
+        b = im;
+        gemm(0,0,k,1,n,1,
+        b,n,
+        randomized_vec.data(),1,
+        1,
+        mm_randomized_mid_right.data(),1);
+      }
+      else {
+        for (int chan = 0; chan < q; chan++) {
+          std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
+          b = &n_workspace[0];
+          im2col_cpu(im+(chan*l.enclave_layered_batch*l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
+          gemm(0,0,l.size*l.size*l.enclave_layered_batch/l.groups,1,n,1,
+          b,n,
+          randomized_vec.data(),1,
+          1,
+          mm_randomized_mid_right.data()+(chan*l.size*l.size*l.enclave_layered_batch),1);
+        }
+        if (r > 0) {
+          std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
+          b = &n_workspace[0];
+          im2col_cpu(im+(q*l.enclave_layered_batch*l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
+          gemm(0,0,l.size*l.size*r/l.groups,1,n,1,
+          b,n,
+          randomized_vec.data(),1,
+          1,
+          mm_randomized_mid_right.data()+(q*l.size*l.size*l.enclave_layered_batch),1);
+        }
+      }
+      gemm(0,0,m,1,k,1,
+      a,k,
+      mm_randomized_mid_right.data(),1,
+      1,
+      mm_randomized_output_right.data(),1);
+      convolutional_get_MM_output_left_compare(l, net,randomized_vec, mm_randomized_output_right,c);
+    }
+  }
+  //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
+  // print_array(&l_output[0],100,0,"sgx after mult, before batchnorm forward input");
+  if (l.batch_normalize) {
+    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+    forward_batchnorm_layer(l, net);
+    l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+
+  } else {
+    auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+    add_bias(&l_output[0], &l_biases[0], l.batch, l.n, l.out_h * l.out_w);
+  }
+  // print_array(&l_output[0],100,0,"sgx after mult, batchnorm before activation forward input");
+  activate_array(&l_output[0], l.outputs * l.batch, l.activation);
+  l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+  /* if (l.binary || l.xnor)
+    swap_binary(&l); */
+}
+
 void forward_convolutional_layer(convolutional_layer& l, network& net)
 {
+  if (net.sgx_net_verifies) {
+    forward_convolutional_layer_verifies_frbmmv(l,net);
+    return;
+  }
   int i, j;
   auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
   auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
@@ -947,9 +1225,6 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
           b = im;
           gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
       } else {
-          //auto n_workspace = net.workspace->getItemsInRange(0, 1*l.out_h*l.out_w*l.size*l.size);
-
-          //auto n_workspace = std::vector<float>(l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size, 0);
           for (int chan = 0; chan < q; chan++) {
             std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
             b = &n_workspace[0];
@@ -1018,8 +1293,8 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
         // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates bn before");
         l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
         backward_batchnorm_layer(l, net);
-        auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
-        print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
+        // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+        // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
         l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
     } else {
       auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
@@ -1029,71 +1304,78 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
       l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
     }
 
+    if (net.sgx_net_verifies) {
+        l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+        backward_convolutional_layer_verifies_frbmmv(l,net);
+        return;
+    }
+
     auto net_workspace = l.size != 1 ? std::unique_ptr<float[]>(
                          new float[l.enclave_layered_batch * l.out_h * l.out_w
                                    * l.size * l.size])
                                  : std::unique_ptr<float[]>(nullptr);
-
+    auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+    if (net.delta == nullptr) {
+      auto del_ptr = l_weights.release();
+      delete[] del_ptr;
+    } 
     for(i = 0; i < l.batch; ++i){
         for(j = 0; j < l.groups; ++j){
-            float *a = &l_delta[0] + (i*l.groups + j)*m*k;
-            float *b = nullptr;   //&net_workspace[0];
-            float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
-            float *im  = &net_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+          float *a = &l_delta[0] + (i*l.groups + j)*m*k;
+          float *b = nullptr;   //&net_workspace[0];
+          float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
+          float *im  = &net_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
 
-            if(l.size == 1){
-                b = im;
-                gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
-            } else {
-                //auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
-                
-                //auto net_workspace = std::vector<float>(l.enclave_layered_batch*l.size*l.size*l.out_h*l.out_w,0);
-                for (int chan = 0; chan < q;++chan) {
-                  //std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
-                  b = &net_workspace[0];
-                  im2col_cpu(im+chan*l.enclave_layered_batch*(l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
-                  //im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
-                  gemm(0,1,m,(l.enclave_layered_batch*l.size*l.size),k,1,a,k,b,k,1,c+(chan*l.enclave_layered_batch*l.size*l.size),n);
-                  //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+          if(l.size == 1){
+            b = im;
+            gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+          } 
+          else {
+              for (int chan = 0; chan < q;++chan) {
+                std::memset(&net_workspace[0], 0, sizeof(float)*l.enclave_layered_batch * l.out_h * l.out_w* l.size * l.size);
+                b = &net_workspace[0];
+                im2col_cpu(im+chan*l.enclave_layered_batch*(l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
+                //im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
+                gemm(0,1,m,(l.enclave_layered_batch*l.size*l.size),k,1,a,k,b,k,1,c+(chan*l.enclave_layered_batch*l.size*l.size),n);
+                //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+              }
+              if (r > 0) {
+                std::memset(&net_workspace[0], 0, sizeof(float)*l.enclave_layered_batch * l.out_h * l.out_w* l.size * l.size);
+                b = &net_workspace[0];
+                im2col_cpu(im+q*l.enclave_layered_batch*(l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
+                gemm(0,1,m,(r*l.size*l.size),k,1,a,k,b,k,1,c+(q*l.enclave_layered_batch*l.size*l.size),n);
+              }
+          }
+          //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+
+          if (net.delta != nullptr) {
+            // auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+            a = &l_weights[0] + j*l.nweights/l.groups;
+            b = &l_delta[0] + (i*l.groups + j)*m*k;
+            float *imd = &net_delta[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+            c = nullptr;  // &net_workspace[0];
+            if (l.size == 1) {
+                c = imd;
+                gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
+            }
+            else {
+                for (int chan=0;chan < q;chan++) {
+                  std::memset(&net_workspace[0], 0, sizeof(float)*l.enclave_layered_batch * l.out_h * l.out_w* l.size * l.size);
+                  c = &net_workspace[0];
+                  // TODO: potential bug
+                  gemm(1,0,l.enclave_layered_batch*l.size*l.size,k,m,1,a+(chan*l.enclave_layered_batch*l.size*l.size),n,b,k,0,c,k);
+                  col2im_cpu(c, l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, imd+(chan*l.enclave_layered_batch*l.h*l.w));
                 }
                 if (r > 0) {
-                  b = &net_workspace[0];
-                  im2col_cpu(im+q*l.enclave_layered_batch*(l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
-                  gemm(0,1,m,(r*l.size*l.size),k,1,a,k,b,k,1,c+(q*l.enclave_layered_batch*l.size*l.size),n);
+                  std::memset(&net_workspace[0], 0, sizeof(float)*l.enclave_layered_batch * l.out_h * l.out_w* l.size * l.size);
+                  c = &net_workspace[0];
+                  gemm(1,0,r*l.size*l.size,k,m,1,a+(q*l.enclave_layered_batch*l.size*l.size),n,b,k,0,c,k);
+                  col2im_cpu(c, r, l.h, l.w, l.size, l.stride, l.pad, imd+(q*l.enclave_layered_batch*l.h*l.w));
                 }
+                //gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
+                //col2im_cpu(&net_workspace[0], l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
             }
-            //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
-
-            if (net.delta != nullptr) {
-                auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
-                a = &l_weights[0] + j*l.nweights/l.groups;
-                b = &l_delta[0] + (i*l.groups + j)*m*k;
-                float *imd = &net_delta[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
-                c = nullptr;  // &net_workspace[0];
-                if (l.size == 1) {
-                    c = imd;
-                    gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
-                }
-                else {
-                    //auto net_workspace = net.workspace->getItemsInRange(0, l.size*l.size*l.out_h*l.out_w);
-                    
-                    //auto net_workspace = std::vector<float>(l.enclave_layered_batch*l.size*l.size*l.out_h*l.out_w,0);
-                    for (int chan=0;chan < q;chan++) {
-                        //std::memset(&net_workspace[0], 0, sizeof(float)*net_workspace.size());
-                        c = &net_workspace[0];
-                        // TODO: potential bug
-                        gemm(1,0,l.enclave_layered_batch*l.size*l.size,k,m,1,a+(chan*l.enclave_layered_batch*l.size*l.size),n,b,k,0,c,k);
-                        col2im_cpu(c, l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, imd+(chan*l.enclave_layered_batch*l.h*l.w));
-                    }
-                    if (r > 0) {
-                      c = &net_workspace[0];
-                      gemm(1,0,r*l.size*l.size,k,m,1,a+(q*l.enclave_layered_batch*l.size*l.size),n,b,k,0,c,k);
-                      col2im_cpu(c, r, l.h, l.w, l.size, l.stride, l.pad, imd+(q*l.enclave_layered_batch*l.h*l.w));
-                    }
-                    //gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
-                    //col2im_cpu(&net_workspace[0], l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
-                }
-            }
+          }
         }
     }
     // print_array(&l_weight_updates[0], l.nweights, 0, "SGX after conv layer weight updates");
@@ -1105,6 +1387,235 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
     }
     //LOG_DEBUG("after backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("after backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
+}
+
+void convolutional_get_MM_weight_updates_left_compare(layer& l, network& net) {
+  std::vector<float> rand_left(l.n/l.groups,0);
+  auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
+  gemm(0,0,l.n/l.groups,1,(l.size*l.size*l.c/l.groups),1,
+    l_weight_updates.get(),(l.size*l.size*l.c/l.groups),
+    l.input_rand_weight_updates,1,
+    1,
+    rand_left.data(),1
+  );
+  for (int i=0;i<rand_left.size();++i) {
+    if (std::abs(l.right_rand_weight_updates[i]-rand_left[i]) > 0.00001f) {
+      LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+          i,l.right_rand_weight_updates[i],rand_left[i])
+      abort();
+    }
+  }
+}
+
+void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,std::vector<float> &rand_vec,
+                                                std::vector<float> &rand_right,float* imd,float* net_workspace,
+                                                int iter,
+                                                int subdiv, int batch_num) {
+  int q = (l.c/l.groups) / l.enclave_layered_batch;
+  int r = (l.c/l.groups) % l.enclave_layered_batch;
+  int layer_index = net.index;
+  std::vector<float> rand_left(l.size*l.size*l.c/l.groups,0);
+  sgx_status_t ret = SGX_ERROR_UNEXPECTED;
+  size_t start_prevdelta = ((subdiv*l.batch*(l.size*l.size*l.c/l.groups)*l.out_w*l.out_h)+
+                 (batch_num*(l.size*l.size*l.c/l.groups)*l.out_w*l.out_h))*sizeof(float);
+  // if (layer_index == 7 && batch_num == 0) {
+  // if (batch_num == 0) {
+    // LOG_DEBUG("prev delta conv layer %d,iter=%d,subdiv=%d,net_batch=%d,net_enclavesubdiv=%d\nbatch=%d,q=%d,r=%d,l.size=%d\n",
+    //   layer_index,iter,subdiv,net.batch,net.enclave_subdivisions,batch_num,q,r,l.size)
+  // }
+  if (l.size == 1) {
+    ret = ocall_load_layer_report_frbmmv(iter, layer_index,
+            0,nullptr,0,nullptr,0,
+            0,nullptr,0,nullptr,0,
+            start_prevdelta,
+            (uint8_t*)imd, (l.c*l.out_w*l.out_h)*sizeof(float),
+            nullptr,0);
+    CHECK_SGX_SUCCESS(ret, "ocall_load_layer_report_frbmmv caused problem!\n")
+    gemm(0,0,(l.c),1,(l.out_w*l.out_h),1,
+      imd,(l.out_w*l.out_h),
+      rand_vec.data(),1,
+      1,
+      rand_left.data(),1
+    );
+  }
+  else {
+    for (int chan = 0; chan < q;++chan) {
+      std::memset(net_workspace, 0,l.enclave_layered_batch * l.out_h * l.out_w
+                                   * l.size * l.size*sizeof(float));
+      ret = ocall_load_layer_report_frbmmv(iter, layer_index,
+              0,nullptr,0,nullptr,0,
+              0,nullptr,0,nullptr,0,
+              start_prevdelta,
+              (uint8_t*)net_workspace,l.enclave_layered_batch * l.out_h * l.out_w
+                                   * l.size * l.size*sizeof(float),
+              nullptr,0);
+      CHECK_SGX_SUCCESS(ret, "ocall_load_layer_report_frbmmv caused problem!\n")
+      gemm(0,0,(l.size*l.size*l.enclave_layered_batch),1,(l.out_w*l.out_h),1,
+        net_workspace,(l.out_w*l.out_h),
+        rand_vec.data(),1,
+        1,
+        rand_left.data()+chan*l.enclave_layered_batch*l.size*l.size,1
+      );
+      col2im_cpu(net_workspace, l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, imd+(chan*l.enclave_layered_batch*l.h*l.w));
+      start_prevdelta += (l.size*l.size*l.enclave_layered_batch*l.out_w*l.out_h)*sizeof(float);
+    }
+    if (r > 0) {
+      std::memset(net_workspace, 0,l.enclave_layered_batch * l.out_h * l.out_w
+                                   * l.size * l.size*sizeof(float));
+      ret = ocall_load_layer_report_frbmmv(iter, layer_index,
+              0,nullptr,0,nullptr,0,
+              0,nullptr,0,nullptr,0,
+              start_prevdelta,
+              (uint8_t*)net_workspace,r * l.out_h * l.out_w
+                                   * l.size * l.size*sizeof(float),
+              nullptr,0);
+      CHECK_SGX_SUCCESS(ret, "ocall_load_layer_report_frbmmv caused problem!\n")
+      gemm(0,0,(l.size*l.size*r),1,(l.out_w*l.out_h),1,
+        net_workspace,(l.out_w*l.out_h),
+        rand_vec.data(),1,
+        1,
+        rand_left.data()+q*l.size*l.size,1
+      );
+      col2im_cpu(net_workspace, r, l.h, l.w, l.size, l.stride, l.pad, imd+(q*l.enclave_layered_batch*l.h*l.w));
+      start_prevdelta += (r*l.size*l.size*l.out_w*l.out_h)*sizeof(float);
+    }
+  }
+  
+  // iteration, layer_index, subdiv,batch
+  // TODO check the validity of report
+  if (rand_right.size()!=rand_left.size()) {
+    LOG_ERROR("size mismatch\n")
+    abort();
+  }
+  for (int i=0;i<rand_right.size();++i) {
+    if (std::fabs(rand_right[i]-rand_left[i]) > 0.00001f) {
+        // LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+        //     i,rand_left[i],rand_right[i])
+        // abort();
+    }
+  }
+}
+
+void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
+
+  auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+  auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
+  auto net_delta  = net.delta ? net.delta->getItemsInRange(0, net.delta->getBufferSize()):std::unique_ptr<float[]>(nullptr);
+  auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+  int q = (l.c/l.groups) / l.enclave_layered_batch;
+  int r = (l.c/l.groups) % l.enclave_layered_batch;
+  std::vector<float> mm_randomized_output_right(l.n/l.groups,0);
+  std::vector<float> mm_randomized_mid_right(l.out_w*l.out_h,0);
+  
+
+  auto net_workspace = l.size != 1 ? std::unique_ptr<float[]>(
+                         new float[l.enclave_layered_batch * l.out_h * l.out_w
+                                   * l.size * l.size])
+                                 : std::unique_ptr<float[]>(nullptr);
+  auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+  if (net.delta == nullptr) {
+    auto del_ptr = l_weights.release();
+    delete[] del_ptr;
+  }
+  int i,j;
+  int m = l.n/l.groups;
+  int n = l.size*l.size*l.c/l.groups;
+  int k = l.out_w*l.out_h;
+  int iter = ((*net.seen-net.batch)/(net.batch*net.enclave_subdivisions)) + 1;
+  int subdiv = (((*net.seen-net.batch)/net.batch)%net.enclave_subdivisions);
+  
+  // perform weight_updates rand mult
+  for(i = 0; i < l.batch; ++i){
+    for(j = 0; j < l.groups; ++j){
+      float *a = &l_delta[0] + (i*l.groups + j)*m*k;
+      float *b = nullptr;   //&net_workspace[0];
+      float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
+      float *im  = &net_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+      std::memset(mm_randomized_mid_right.data(),0,mm_randomized_mid_right.size()*sizeof(float));
+      std::memset(mm_randomized_output_right.data(),0,mm_randomized_output_right.size()*sizeof(float));
+      if (l.size == 1) {
+        b = im;
+        gemm(1,0,(l.out_w*l.out_h),1,l.size*l.size*l.c/l.groups,1,
+          b,(l.out_w*l.out_h),
+          l.input_rand_weight_updates,1,
+          1,
+          mm_randomized_mid_right.data(),1
+        );
+      }
+      else {
+        for (int chan = 0; chan < q;++chan) {
+          std::memset(&net_workspace[0], 0, sizeof(float)*l.enclave_layered_batch * l.out_h * l.out_w* l.size * l.size);
+          b = &net_workspace[0];
+          im2col_cpu(im+chan*l.enclave_layered_batch*(l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
+          gemm(1,0,(l.out_w*l.out_h),1,l.size*l.size*l.enclave_layered_batch,1,
+            b,(l.out_w*l.out_h),
+            l.input_rand_weight_updates+(chan*l.size*l.size*l.enclave_layered_batch),1,
+            1,
+            mm_randomized_mid_right.data(),1
+          );
+        }
+        if (r > 0) {
+          std::memset(&net_workspace[0], 0, sizeof(float)*l.enclave_layered_batch * l.out_h * l.out_w* l.size * l.size);
+          b = &net_workspace[0];
+          im2col_cpu(im+q*l.enclave_layered_batch*(l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
+          gemm(1,0,(l.out_w*l.out_h),1,l.size*l.size*r,1,
+            b,(l.out_w*l.out_h),
+            l.input_rand_weight_updates+(q*l.size*l.size*l.enclave_layered_batch),1,
+            1,
+            mm_randomized_mid_right.data(),1
+          );
+        }
+      }
+      // multiply with delta
+      gemm(0,0,l.n/l.groups,1,(l.out_w*l.out_h),1,
+        a,(l.out_w*l.out_h),
+        mm_randomized_mid_right.data(),1,
+        1,
+        mm_randomized_output_right.data(),1
+      );
+      for (int ss=0;ss<mm_randomized_output_right.size();++ss) {
+        l.right_rand_weight_updates[ss] += mm_randomized_output_right[ss];
+      }
+      // prev delta
+      if (net.delta != nullptr) {
+        std::vector<float> net_delta_randomized_vec(l.out_w*l.out_h);
+        for (int ss=0;ss<net_delta_randomized_vec.size();++ss) {
+          net_delta_randomized_vec[ss] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
+                      std::numeric_limits<float>::max());
+        }
+        std::vector<float> net_delta_mm_randomized_output_right(l.size*l.size*l.c/l.groups,0);
+        std::vector<float> net_delta_mm_randomized_mid_right(l.n/l.groups,0);
+        a = &l_weights[0] + j*l.nweights/l.groups;
+        b = &l_delta[0] + (i*l.groups + j)*m*k;
+        float *imd = &net_delta[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+        c = nullptr;  // &net_workspace[0];
+        gemm(0,0,l.n/l.groups,1,l.out_w*l.out_h,1,
+            b,(l.out_w*l.out_h),
+            net_delta_randomized_vec.data(),1,
+            1,
+            net_delta_mm_randomized_mid_right.data(),1
+        );
+        gemm(1,0,(l.size*l.size*l.c/l.groups),1,l.n/l.groups,1,
+          a,(l.size*l.size*l.c/l.groups),
+          net_delta_mm_randomized_mid_right.data(),1,
+          1,
+          net_delta_mm_randomized_output_right.data(),1
+        );
+        // verify prev delta for this batch element
+        convolutional_get_MM_output_prevdelta_left_compare(l, net,net_delta_randomized_vec,
+                                                net_delta_mm_randomized_output_right,imd,net_workspace.get(),
+                                                iter,
+                                                subdiv, i);
+      }
+    }
+  }
+  if (net.delta) {
+    net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
+  }
+  // check if last backward for this SGD step considering l.batch and l.enclave_subdiv
+  if(((*net.seen)/net.batch)%net.enclave_subdivisions == 0) {
+    convolutional_get_MM_weight_updates_left_compare(l, net);
+  }
 }
 
 void update_convolutional_layer(convolutional_layer& l, update_args a)

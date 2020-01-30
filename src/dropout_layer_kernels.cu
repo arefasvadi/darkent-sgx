@@ -25,6 +25,10 @@ void forward_dropout_layer_gpu(dropout_layer layer, network net)
     for(int i = 0; i < size; ++i){
         layer.rand[i] = rand_uniform(*(layer.layer_rng),0, 1);
     }
+    // if (net.index == 12) {
+    //     print_array(layer.rand,size,0,"GPU dropout rand vals");
+    // }
+    
     cuda_push_array(layer.rand_gpu, layer.rand, size);
     #endif
     /*

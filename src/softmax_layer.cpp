@@ -104,8 +104,8 @@ void forward_softmax_layer_gpu(const softmax_layer l, network net)
         }
         */
     } else {
-        cuda_pull_array(net.input_gpu, net.input, l.batch*l.inputs);
-        print_array(net.input, 100, 0, "GPU: before softamx input");
+        // cuda_pull_array(net.input_gpu, net.input, l.batch*l.inputs);
+        // print_array(net.input, 100, 0, "GPU: before softamx input");
         if(l.spatial){
             softmax_gpu(net.input_gpu, l.c, l.batch*l.c, l.inputs/l.c, l.w*l.h, 1, l.w*l.h, 1, l.output_gpu);
         }else{
@@ -121,8 +121,9 @@ void forward_softmax_layer_gpu(const softmax_layer l, network net)
         cuda_pull_array(l.loss_gpu, l.loss, l.batch*l.inputs);
         l.cost[0] = sum_array(l.loss, l.batch*l.inputs);
     }
-    pull_softmax_layer_output(l);
-    print_array(l.output, l.batch*l.outputs, 0, "GPU Softmax Vals");
+    // pull_softmax_layer_output(l);
+    // print_array(l.output, l.batch*l.outputs, 0, "GPU Softmax Vals");
+    
     // std::string temp_str = std::string("GPU Softmax Vals with batch size: ")+std::to_string(l.batch)+std::string("\n");
     // for (int i=0;i<l.batch;++i) {
     //     temp_str = temp_str + "batch " + std::to_string(i) + " ->: ";
@@ -234,7 +235,7 @@ void forward_softmax_layer(softmax_layer& l, network& net)
         }
     } else {
         auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
-        print_array(&net_input[0],100,0,"SGX before softmax input");
+        // print_array(&net_input[0],100,0,"SGX before softmax input");
         softmax_cpu(&net_input[0], l.inputs/l.groups, l.batch, l.inputs, l.groups, l.inputs/l.groups, 1, l.temperature, &l_output[0]);
     }
 
@@ -243,7 +244,7 @@ void forward_softmax_layer(softmax_layer& l, network& net)
         softmax_x_ent_cpu(l.batch*l.inputs, &l_output[0], &net_truth[0], &l_delta[0], &l_loss[0]);
         l.cost[0] = sum_array(&l_loss[0], l.batch*l.inputs);
     }
-    print_array(&l_output[0], l.batch*l.outputs, 0, "SGX Softmax Vals");
+    // print_array(&l_output[0], l.batch*l.outputs, 0, "SGX Softmax Vals");
     // std::string temp_str = std::string("LAYERWISE Softmax Vals with batch size: ")+std::to_string(l.batch)+std::string("\n");
     // for (int i=0;i<l.batch;++i) {
     //     temp_str = temp_str + "batch " + std::to_string(i) + " ->: ";

@@ -88,10 +88,10 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
         if (global_training) l.x_norm = (float*)calloc(batch*outputs, sizeof(float));
     }
 #if defined(SGX_VERIFIES) && defined(GPU)
-    l.forward_gpu_sgx_verifies = forward_connected_gpu_sgx_verifies_fbv; 
-    l.backward_gpu_sgx_verifies = backward_connected_gpu_sgx_verifies_fbv;
-    l.update_gpu_sgx_verifies = update_connected_gpu_sgx_verifies_fbv;
-    l.create_snapshot_for_sgx = create_connected_snapshot_for_sgx_fbv;
+    l.forward_gpu_sgx_verifies = forward_connected_gpu_sgx_verifies_; 
+    l.backward_gpu_sgx_verifies = backward_connected_gpu_sgx_verifies_;
+    l.update_gpu_sgx_verifies = update_connected_gpu_sgx_verifies_;
+    l.create_snapshot_for_sgx = create_connected_snapshot_for_sgx_;
 #endif 
 
 #ifdef GPU
@@ -406,46 +406,149 @@ void backward_connected_layer_gpu(layer l, network net)
 #endif
 
 #if defined(SGX_VERIFIES) && defined(GPU)
-    void forward_connected_gpu_sgx_verifies_fbv     (struct layer l, struct network net) {
-        forward_connected_layer_gpu(l,net);
+    
+void forward_connected_layer_gpu_frbmmv(layer l, network net) {
+    fill_gpu(l.outputs*l.batch, 0, l.output_gpu, 1);
+    
+    int m = l.batch;
+    int k = l.inputs;
+    int n = l.outputs;
+    float * a = net.input_gpu;
+    float * b = l.weights_gpu;
+    float * c = l.output_gpu;
+    gemm_gpu(0,1,m,n,k,1,a,k,b,k,1,c,n);
+    // store the output of MM
+    if (train_iterations_snapshots_frbmmv.step_net_reports.count(gpu_iteration) == 0) {
+        train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration] = std::move(network_batch_step_snapshot_frbmmv_t());
     }
-    void backward_connected_gpu_sgx_verifies_fbv(struct layer l, struct network net) {
-        backward_connected_layer_gpu(l,net);
+    auto& net_report = train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration];
+    if (net_report.net_layers_reports.count(net.index) == 0) {
+        net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
+        net_report.net_layers_reports[net.index].layer_forward_MM_outputs = std::vector<uint8_t>();
+        net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
     }
-    void update_connected_gpu_sgx_verifies_fbv(struct layer l, update_args a) {
-        update_connected_layer_gpu(l,a);
+    auto& layer_report = net_report.net_layers_reports[net.index];
+    auto curr_out_size = layer_report.layer_forward_MM_outputs.size();
+    layer_report.layer_forward_MM_outputs.resize(curr_out_size+(l.outputs*l.batch*sizeof(float)));
+    cuda_pull_array(l.output_gpu, (float*)(layer_report.layer_forward_MM_outputs.data()+curr_out_size),l.outputs*l.batch);
+    // if (net.index == 13) {
+    //     cuda_pull_array(l.output_gpu, l.output,l.outputs*l.batch);
+    //     print_array(l.output,l.batch*l.outputs,0,"GPU FRBMMV connected forward input before bias or batchnorm");
+    // }
+    if (l.batch_normalize) {
+        forward_batchnorm_layer_gpu(l, net);
+    } else {
+        add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.outputs, 1);
+    }
+    // if (net.index == 13) {
+    //     cuda_pull_array(l.output_gpu, l.output,l.outputs*l.batch);
+    //     print_array(l.output,l.batch*l.outputs,0,"GPU FRBMMV connected forward input after bias or batchnorm before activation");
+    // }
+    activate_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation);
+}
+
+void backward_connected_layer_gpu_frbmmv(layer l, network net) {
+    // commented to make things alike
+    // constrain_gpu(l.outputs*l.batch, 1, l.delta_gpu, 1);
+    // if (net.index == 13) {
+    //     cuda_pull_array(l.delta_gpu, l.delta, l.outputs*l.batch);
+    //     print_array(l.delta, l.outputs*l.batch/10, 0, "before connected layer delta");
+    // }
+    gradient_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation, l.delta_gpu);
+    
+    if(l.batch_normalize){
+        backward_batchnorm_layer_gpu(l, net);
+    } else {
+        backward_bias_gpu(l.bias_updates_gpu, l.delta_gpu, l.batch, l.outputs, 1);
     }
 
-    // takes overall weight updates,bias updates
-    // in case of BN, also take rolling mean,var and scales
-    void create_connected_snapshot_for_sgx_fbv(struct layer& l, struct network& net, uint8_t** out, uint8_t** sha256_out) {
-        if (gpu_index >= 0) {
-            pull_connected_layer(l);
+    int m = l.outputs;
+    int k = l.batch;
+    int n = l.inputs;
+    float * a = l.delta_gpu;
+    float * b = net.input_gpu;
+    float * c = l.weight_updates_gpu;
+    
+    gemm_gpu(1,0,m,n,k,1,a,m,b,n,1,c,n);
+
+    m = l.batch;
+    k = l.outputs;
+    n = l.inputs;
+
+    a = l.delta_gpu;
+    b = l.weights_gpu;
+    c = net.delta_gpu;
+
+    if(c) {
+        gemm_gpu(0,0,m,n,k,1,a,k,b,n,1,c,n);
+        // store the output of MM
+        if (train_iterations_snapshots_frbmmv.step_net_reports.count(gpu_iteration) == 0) {
+            train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration] = std::move(network_batch_step_snapshot_frbmmv_t());
         }
-        size_t total_bytes = count_layer_paramas_bytes(l);
-        size_t buff_ind = 0;
-        *out = new uint8_t[total_bytes];
-        *sha256_out = new uint8_t[SHA256_DIGEST_LENGTH];
-        
-        std::memcpy((*out+buff_ind),l.bias_updates,l.nbiases*sizeof(float));
-        buff_ind += l.nbiases*sizeof(float);
-        std::memcpy((*out+buff_ind),l.weight_updates,l.nweights*sizeof(float));
-        buff_ind += l.nweights*sizeof(float);
-        
-        if (l.batch_normalize) {
-            std::memcpy((*out+buff_ind),l.scale_updates,l.nbiases*sizeof(float));
-            buff_ind += l.nbiases*sizeof(float);
-            std::memcpy((*out+buff_ind),l.rolling_mean,l.nbiases*sizeof(float));
-            buff_ind += l.nbiases*sizeof(float);
-            std::memcpy((*out+buff_ind),l.rolling_variance,l.nbiases*sizeof(float));
-            buff_ind += l.nbiases*sizeof(float);
+        auto& net_report = train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration];
+        if (net_report.net_layers_reports.count(net.index) == 0) {
+            net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
+            net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
         }
-        if (buff_ind != total_bytes) {
-                LOG_ERROR("size mismatch\n")
-                abort();
-        }
-        gen_sha256(*out,total_bytes,*sha256_out);
+        auto& layer_report = net_report.net_layers_reports[net.index];
+        auto curr_out_size = layer_report.layer_backward_MM_prev_delta.size();
+        layer_report.layer_backward_MM_prev_delta.resize(curr_out_size+(l.inputs*l.batch*sizeof(float)));
+        cuda_pull_array(net.delta_gpu, (float*)(layer_report.layer_backward_MM_prev_delta.data()+curr_out_size),l.inputs*l.batch);
     }
+}
+
+void forward_connected_gpu_sgx_verifies_     (struct layer l, struct network net) {
+    if (*main_verf_task_variation_ == verf_variations_t::FRBV) {
+        forward_connected_layer_gpu(l,net);
+        return;
+    }
+    forward_connected_layer_gpu_frbmmv(l, net);
+    return;
+}
+void backward_connected_gpu_sgx_verifies_(struct layer l, struct network net) {
+    if (*main_verf_task_variation_ == verf_variations_t::FRBV) {
+        backward_connected_layer_gpu(l,net);
+        return;
+    }
+    backward_connected_layer_gpu_frbmmv(l,net);
+    return;
+}
+void update_connected_gpu_sgx_verifies_(struct layer l, update_args a) {
+    update_connected_layer_gpu(l,a);
+    return;
+}
+
+// takes overall weight updates,bias updates
+// in case of BN, also take rolling mean,var and scales
+void create_connected_snapshot_for_sgx_(struct layer& l, struct network& net, uint8_t** out, uint8_t** sha256_out) {
+    if (gpu_index >= 0) {
+        pull_connected_layer(l);
+    }
+    size_t total_bytes = count_layer_paramas_bytes(l);
+    size_t buff_ind = 0;
+    *out = new uint8_t[total_bytes];
+    *sha256_out = new uint8_t[SHA256_DIGEST_LENGTH];
+    
+    std::memcpy((*out+buff_ind),l.bias_updates,l.nbiases*sizeof(float));
+    buff_ind += l.nbiases*sizeof(float);
+    std::memcpy((*out+buff_ind),l.weight_updates,l.nweights*sizeof(float));
+    buff_ind += l.nweights*sizeof(float);
+    
+    if (l.batch_normalize) {
+        std::memcpy((*out+buff_ind),l.scale_updates,l.nbiases*sizeof(float));
+        buff_ind += l.nbiases*sizeof(float);
+        std::memcpy((*out+buff_ind),l.rolling_mean,l.nbiases*sizeof(float));
+        buff_ind += l.nbiases*sizeof(float);
+        std::memcpy((*out+buff_ind),l.rolling_variance,l.nbiases*sizeof(float));
+        buff_ind += l.nbiases*sizeof(float);
+    }
+    if (buff_ind != total_bytes) {
+            LOG_ERROR("size mismatch\n")
+            abort();
+    }
+    gen_sha256(*out,total_bytes,*sha256_out);
+}
+
 #endif
 
 #if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
@@ -476,7 +579,11 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
     if (global_training) l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(batch*outputs);
 
     //l.weight_updates = (float*)calloc(inputs*outputs, sizeof(float));
-    if (global_training) l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*outputs);
+    if (global_training) {
+        l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*outputs);
+        l.right_rand_weight_updates = (double*)calloc(l.outputs,sizeof(double));
+        l.input_rand_weight_updates = (float*)calloc(l.inputs,sizeof(float));
+    }
     //l.bias_updates = (float*)calloc(outputs, sizeof(float));
     if (global_training) l.bias_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
 
@@ -648,7 +755,11 @@ void update_connected_layer(layer& l, update_args a)
 }
 
 void forward_connected_layer(layer& l, network& net)
-{
+{   
+    if (net.sgx_net_verifies) {
+        forward_connected_layer_verifies_frbmmv(l,net);
+        return;
+    }
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     fill_cpu(l.outputs*l.batch, 0, &l_output[0], 1);
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
@@ -659,52 +770,21 @@ void forward_connected_layer(layer& l, network& net)
     
     int q = l.outputs / l.enclave_layered_batch;
     int r = l.outputs % l.enclave_layered_batch;
-
     {
-        std::vector<float> temp_out(l.batch*l.enclave_layered_batch,0.0);
         float *a = &net_input[0];
         for (int i=0;i<q;++i) {
-            //std::vector<float> temp_out;
-            for (int j=0;j<l.batch;++j) {
-                //temp_out.push_back(l_output[j*l.outputs + i]);
-                for (int p=0;p<l.enclave_layered_batch;++p) {
-                    temp_out[j*l.enclave_layered_batch+p] = 
-                        l_output[j*l.outputs + i*l.enclave_layered_batch + p];
-                }
-            }
-            float *c = &temp_out[0];
+            float *c = &l_output[i*l.enclave_layered_batch];
             auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs,(i+1)*l.enclave_layered_batch*l.inputs); 
             // print_array(&l_weights[0],l.enclave_layered_batch*l.inputs,i*l.enclave_layered_batch*l.inputs,"SGX before connected forward weights");
             float *b = &l_weights[0];        
-            gemm(0,1,m,l.enclave_layered_batch,k,1,a,k,b,k,1,c,l.enclave_layered_batch);
-            for (int j=0;j<l.batch;++j) {
-                //l_output[j*l.outputs + i] = temp_out[j];
-                for (int p=0;p<l.enclave_layered_batch;++p) {
-                    l_output[j*l.outputs + i*l.enclave_layered_batch + p] = 
-                        temp_out[j*l.enclave_layered_batch+p] ;
-                }
-            }
-            //l.weights->setItemsInRange(i*l.inputs,(i+1)*l.inputs,l_weights);
+            gemm(0,1,m,l.enclave_layered_batch,k,1,a,k,b,k,1,c,n);
         }
         if (r > 0) {
-            for (int j=0;j<l.batch;++j) {
-                //temp_out.push_back(l_output[j*l.outputs + i]);
-                for (int p=0;p<r;++p) {
-                    temp_out[j*r+p] = 
-                        l_output[j*l.outputs + q*l.enclave_layered_batch + p];
-                }
-            }
-            float *c = &temp_out[0];
+            float *c = &l_output[q*l.enclave_layered_batch];
             auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*l.inputs,q*l.enclave_layered_batch*l.inputs+r*l.inputs); 
             // print_array(&l_weights[0],r*l.inputs,q*l.enclave_layered_batch*l.inputs,"SGX before connected forward weights");
             float *b = &l_weights[0];        
-            gemm(0,1,m,r,k,1,a,k,b,k,1,c,r);
-            for (int j=0;j<l.batch;++j) {
-                for (int p=0;p<r;++p) {
-                    l_output[j*l.outputs + q*l.enclave_layered_batch + p] = 
-                        temp_out[j*r+p];
-                }
-            }
+            gemm(0,1,m,r,k,1,a,k,b,k,1,c,n);
         }
         //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
     }
@@ -725,9 +805,10 @@ void forward_connected_layer(layer& l, network& net)
 
 void backward_connected_layer(layer& l, network& net)
 {
-    
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-    // print_array(&l_delta[0], l.outputs*l.batch/10, 0, "before connected layer delta");
+    // if (net.index == 13) {
+    //     print_array(&l_delta[0], l.outputs*l.batch/10, 0, "before connected layer delta");
+    // }
     {
         auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
         gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
@@ -747,6 +828,12 @@ void backward_connected_layer(layer& l, network& net)
         l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
     }
 
+    if (net.sgx_net_verifies) {
+        l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+        backward_connected_layer_verifies_frbmmv(l,net);
+        return;
+    }
+
     int q = l.outputs / l.enclave_layered_batch;
     int r = l.outputs % l.enclave_layered_batch;
 
@@ -756,38 +843,24 @@ void backward_connected_layer(layer& l, network& net)
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
     float *b = &net_input[0];
     {
-        std::vector<float> temp_delta(l.batch*l.enclave_layered_batch,0.0);
         for (int i=0;i<q;++i) {
-            for (int j=0;j<l.batch;++j) {
-                for (int p=0;p<l.enclave_layered_batch;++p) {
-                    temp_delta[j*l.enclave_layered_batch+p] = 
-                        l_delta[j*l.outputs + i*l.enclave_layered_batch + p];
-                }
-            }
-            float *a = &temp_delta[0];
+            float *a = &l_delta[i*l.enclave_layered_batch];
             auto l_weight_updates = l.weight_updates->getItemsInRange(i*l.enclave_layered_batch*n, (i+1)*l.enclave_layered_batch*n);
             float *c = &l_weight_updates[0];
-            gemm(1,0,l.enclave_layered_batch,n,k,1,a,l.enclave_layered_batch,b,n,1,c,n);
+            gemm(1,0,l.enclave_layered_batch,n,k,1,a,m,b,n,1,c,n);
             // print_array(&l_weight_updates[0], l.enclave_layered_batch*n, i*l.enclave_layered_batch*n, "SGX after connected layer weight updates");
             l.weight_updates->setItemsInRange(i*l.enclave_layered_batch*n, (i+1)*l.enclave_layered_batch*n,l_weight_updates);
         }
         if (r > 0) {
-            for (int j=0;j<l.batch;++j) {
-                for (int p=0;p<r;++p) {
-                    temp_delta[j*r+p] = 
-                        l_delta[j*l.outputs + q*l.enclave_layered_batch + p];
-                }
-            }
-            float *a = &temp_delta[0];
+            float *a = &l_delta[q*l.enclave_layered_batch];
             auto l_weight_updates = l.weight_updates->getItemsInRange(q*l.enclave_layered_batch*n, q*l.enclave_layered_batch*n + r*n);
             float *c = &l_weight_updates[0];
-            gemm(1,0,r,n,k,1,a,r,b,n,1,c,n);
+            gemm(1,0,r,n,k,1,a,m,b,n,1,c,n);
             // print_array(&l_weight_updates[0], r*n, q*l.enclave_layered_batch*n, "SGX after connected layer weight updates");
             l.weight_updates->setItemsInRange(q*l.enclave_layered_batch*n, q*l.enclave_layered_batch*n+r*n,l_weight_updates);
         }
         //gemm(1,0,m,n,k,1,a,m,b,n,1,c,n);
     }
-    
 
     m = l.batch;
     k = l.outputs;
@@ -795,39 +868,213 @@ void backward_connected_layer(layer& l, network& net)
 
     if(net.delta) {
         auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
-        std::vector<float> temp_delta(l.batch*l.enclave_layered_batch,0.0);
         for (int i=0;i<q;++i) {
-            //std::vector<float> temp_delta;
-            for (int j=0;j<l.batch;++j) {
-                for (int p=0;p<l.enclave_layered_batch;++p) {
-                    temp_delta[j*l.enclave_layered_batch+p] = 
-                        l_delta[j*l.outputs + i*l.enclave_layered_batch + p];
-                }  
-            }
-            float *a = &temp_delta[0];
+            float *a = &l_delta[i*l.enclave_layered_batch];
             auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*(l.inputs), (i+1)*l.enclave_layered_batch*l.inputs);
             b = &l_weights[0];
             float* c = &net_delta[0];
-            gemm(0,0,m,n,l.enclave_layered_batch,1,a,l.enclave_layered_batch,b,n,1,c,n);
+            gemm(0,0,m,n,l.enclave_layered_batch,1,a,k,b,n,1,c,n);
         }
         if (r > 0) {
-            for (int j=0;j<l.batch;++j) {
-                for (int p=0;p<r;++p) {
-                    temp_delta[j*r+p] = 
-                        l_delta[j*l.outputs + q*l.enclave_layered_batch + p];
-                }  
-            }
-            float *a = &temp_delta[0];
+            float *a = &l_delta[q*l.enclave_layered_batch];
             auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*(l.inputs), q*l.enclave_layered_batch*l.inputs+r*l.inputs);
             b = &l_weights[0];
             float* c = &net_delta[0];
-            gemm(0,0,m,n,r,1,a,r,b,n,1,c,n);
+            gemm(0,0,m,n,r,1,a,k,b,n,1,c,n);
         }
         //gemm(0,0,m,n,k,1,a,k,b,n,1,c,n);
         // print_array(&net_delta[0], l.batch*l.inputs, 0, "SGX after connected layer net delta");
         net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
     }
 }
+
+void connected_get_MM_output_left_compare(layer& l, network& net,std::vector<float> &rand_vec,std::vector<float> &rand_right) {
+    std::vector<float> rand_left(l.batch,0);
+    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    gemm(0,0,l.batch,1,l.outputs,1,
+        l_output.get(),l.outputs,
+        rand_vec.data(),1,
+        1,
+        rand_left.data(),1);
+    if (rand_right.size()!=rand_left.size()) {
+        LOG_ERROR("size mismatch\n")
+        abort();
+    }
+    for (int i=0;i<rand_right.size();++i) {
+        if (std::fabs(rand_right[i]-rand_left[i]) > 0.00001f) {
+            LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+                i,rand_right[i],rand_left[i])
+            abort();
+        }
+    }
+}
+
+void forward_connected_layer_verifies_frbmmv(layer& l, network& net) {
+    std::vector<float> mm_randomized_output_right(l.batch,0);
+    std::vector<float> mm_randomized_mid_right(l.inputs,0);
+    std::vector<float> randomized_vec(l.outputs);
+    int q = l.outputs / l.enclave_layered_batch;
+    int r = l.outputs % l.enclave_layered_batch;
+    for (int i=0;i<randomized_vec.size();++i) {
+        randomized_vec[i] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
+                    std::numeric_limits<float>::max());
+    }
+    for (int i=0;i<q;++i) {
+        auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs,(i+1)*l.enclave_layered_batch*l.inputs);
+        gemm(1,0,l.inputs,1,l.enclave_layered_batch,1,
+            l_weights.get(),l.inputs,
+            randomized_vec.data()+(i*l.enclave_layered_batch),1,
+            1,
+            mm_randomized_mid_right.data(),1);
+    }
+    if (r > 0) {
+        auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*l.inputs,q*l.enclave_layered_batch*l.inputs+r*l.inputs);
+        gemm(1,0,l.inputs,1,r,1,
+            l_weights.get(),l.inputs,
+            randomized_vec.data()+(q*l.enclave_layered_batch),1,
+            1,
+            mm_randomized_mid_right.data(),1
+        );
+    }
+    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+    gemm(0,0,l.batch,1,l.inputs,1,
+        &net_input[0],l.inputs,
+        mm_randomized_mid_right.data(),1,
+        1,
+        mm_randomized_output_right.data(),1);
+    connected_get_MM_output_left_compare(l,net,randomized_vec,mm_randomized_output_right);
+    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    // if (net.index == 13) {
+    //     print_array(&l_output[0],l.batch*l.outputs,0,"SGX connected forward input before bias or batchnorm");
+    // }
+    if(l.batch_normalize){
+        l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+        forward_batchnorm_layer(l, net);
+        l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    } else {
+        auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize()); 
+        add_bias(&l_output[0], &l_biases[0], l.batch, l.outputs, 1);
+    }
+    // if (net.index == 13) {
+    //     print_array(&l_output[0],l.batch*l.outputs,0,"SGX connected forward input after bias or batchnorm before activation");
+    // }
+    // print_array(&l_output[0],100,0,"SGX connected forward input after bias or batchnorm");
+    activate_array(&l_output[0], l.outputs*l.batch, l.activation);
+    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+}
+
+void connected_get_MM_weight_updates_left_compare(layer& l, network& net) {
+    int q = l.outputs / l.enclave_layered_batch;
+    int r = l.outputs % l.enclave_layered_batch;
+    std::vector<float> rand_left(l.outputs,0);
+    for (int i=0;i<q;++i) {
+        auto l_weight_updates = l.weight_updates->getItemsInRange(i*l.enclave_layered_batch*l.inputs, (i+1)*l.enclave_layered_batch*l.inputs);
+        gemm(0,0,l.enclave_layered_batch,1,l.inputs,1,
+        l_weight_updates.get(),l.inputs,
+        l.input_rand_weight_updates,1,
+        1,
+        rand_left.data()+i*l.enclave_layered_batch,1);
+    }
+    if (r!=0) {
+        auto l_weight_updates = l.weight_updates->getItemsInRange(q*l.enclave_layered_batch*l.inputs, q*l.enclave_layered_batch*l.inputs+r*l.inputs);
+        gemm(0,0,r,1,l.inputs,1,
+        l_weight_updates.get(),l.inputs,
+        l.input_rand_weight_updates,1,
+        1,
+        rand_left.data()+q*l.enclave_layered_batch,1);
+    }
+    for (int i=0;i<rand_left.size();++i) {
+        if (std::abs(l.right_rand_weight_updates[i]-rand_left[i]) > 0.00001f) {
+            // LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+            //     i,rand_left[i],l.right_rand_weight_updates[i])
+            // abort();
+        }
+    }
+}
+
+void connected_get_MM_output_prevdelta_left_compare(layer& l, network& net,std::vector<float> &rand_vec,
+                                                std::vector<float> &rand_right) {
+    std::vector<float> rand_left(l.batch,0);                                                
+    auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
+    gemm(0,0,l.batch,1,l.inputs,1,
+    net_delta.get(),l.inputs,rand_vec.data(),1,
+    1,
+    rand_left.data(),1);
+    if (rand_right.size()!=rand_left.size()) {
+        LOG_ERROR("size mismatch\n")
+        abort();
+    }
+    for (int i=0;i<rand_right.size();++i) {
+        if (std::fabs(rand_right[i]-rand_left[i]) > 0.00001f) {
+            LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+                i,rand_right[i],rand_left[i])
+            abort();
+        }
+    }
+}
+
+void backward_connected_layer_verifies_frbmmv(layer& l, network& net) {
+    std::vector<float> mm_randomized_output_right(l.outputs,0);
+    std::vector<float> mm_randomized_mid_right(l.batch,0);
+    std::vector<float> randomized_vec(l.inputs);
+    {
+        auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+        gemm(0,0,l.batch,1,l.inputs,1,
+        net_input.get(),l.inputs,
+        l.input_rand_weight_updates,1,
+        1,
+        mm_randomized_mid_right.data(),1);
+    }
+    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    {
+        gemm(1,0,l.outputs,1,l.batch,1,
+        l_delta.get(),l.outputs,
+        mm_randomized_mid_right.data(),1,
+        1,
+        mm_randomized_output_right.data(),1);
+    }
+    for (int i=0;i<mm_randomized_output_right.size();++i) {
+        l.right_rand_weight_updates[i] += mm_randomized_output_right[i];
+    }
+    if(((*net.seen)/net.batch)%net.enclave_subdivisions == 0) {
+        connected_get_MM_weight_updates_left_compare(l, net);
+    }
+    if (net.delta) {
+        mm_randomized_output_right.resize(l.batch);
+        std::memset(mm_randomized_output_right.data(),0,sizeof(float)*l.batch);
+        mm_randomized_mid_right.resize(l.outputs);
+        std::memset(mm_randomized_mid_right.data(),0,sizeof(float)*l.outputs);
+        for (int i=0;i<randomized_vec.size();++i) {
+            randomized_vec[i] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
+                        std::numeric_limits<float>::max());
+        }
+        int q = l.outputs / l.enclave_layered_batch;
+        int r = l.outputs % l.enclave_layered_batch;
+        for (int i=0;i<q;++i) {
+            auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs, (i+1)*l.enclave_layered_batch*l.inputs);
+            gemm(0,0,l.enclave_layered_batch,1,l.inputs,1,
+            l_weights.get(),l.inputs,
+            randomized_vec.data(),1,
+            1,
+            mm_randomized_mid_right.data()+i*l.enclave_layered_batch,1);
+        }
+        if (r!=0) {
+            auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*(l.inputs), q*l.enclave_layered_batch*l.inputs+r*l.inputs);
+            gemm(0,0,r,1,l.inputs,1,
+            l_weights.get(),l.inputs,
+            randomized_vec.data(),1,
+            1,
+            mm_randomized_mid_right.data()+q*l.enclave_layered_batch,1);
+        }
+        gemm(0,0,l.batch,1,l.outputs,1,
+        l_delta.get(),l.outputs,
+        mm_randomized_mid_right.data(),1,
+        1,
+        mm_randomized_output_right.data(),1);
+        connected_get_MM_output_prevdelta_left_compare(l, net,randomized_vec, mm_randomized_output_right);
+    }
+}
+
 #endif
 
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)

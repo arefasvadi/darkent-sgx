@@ -1331,6 +1331,36 @@ count_layer_paramas_bytes(const layer &l) {
 }
 
 uint64_t
+count_layer_paramas_fbrmmv_bytes(const layer &l,const network& net,bool prev_delta) {
+  uint64_t total_bytes = 0;
+  if (l.type == CONNECTED) {
+    total_bytes = (l.nbiases + l.nweights) * sizeof(float);
+    total_bytes += (l.batch*net.subdivisions*l.outputs)* sizeof(float); // output
+    if (prev_delta) {
+        total_bytes += (l.batch*net.subdivisions*l.inputs)* sizeof(float); // delta for previous layerr MM
+    }
+    if (l.batch_normalize) {
+        total_bytes += (3 * l.nbiases) * sizeof(float);
+    }
+  } else if (l.type == CONVOLUTIONAL) {
+    total_bytes = (l.nbiases + l.nweights) * sizeof(float);
+    total_bytes += (l.batch*net.subdivisions*l.outputs)* sizeof(float); // output
+    if (prev_delta) {
+        total_bytes += (l.batch*net.subdivisions*l.size*l.size*l.c*l.out_w*l.out_h)* sizeof(float); // delta for previous layerr MM
+    }
+    if (l.batch_normalize) {
+        total_bytes += (3 * l.nbiases) * sizeof(float);
+    }
+  } else if (l.type == BATCHNORM) {
+    total_bytes = (l.c) * 3 * sizeof(float);
+  } else {
+    LOG_ERROR("For layer %s not implemented\n", get_layer_string(l.type))
+    abort();
+  }
+  return total_bytes;
+}
+
+uint64_t
 count_layer_paramas_updates_bytes(const layer &l) {
     uint64_t total_bytes = count_layer_paramas_bytes(l);
     if (l.type == CONNECTED) {

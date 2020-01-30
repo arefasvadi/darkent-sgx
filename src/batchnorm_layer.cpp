@@ -302,7 +302,7 @@ void backward_batchnorm_layer(layer& l, network& net)
         // LOG_DEBUG("SGX batchnorm back batch:%d,out_c:%d,out_w:%d,out_h:%d\n", l.batch, l.out_c, l.out_w,l.out_h)
         // if (net.index == 7) {
         //     std::string text = std::string("SGX bactnorm delta after gradient on activation layer ") + std::to_string(net.index);
-        //     print_array(&l_delta[0],1*l.outputs,0,text.c_str());
+        //     print_array(&l_delta[(l.batch/2)*l.outputs],1*l.outputs,(l.batch/2)*l.outputs,text.c_str());
         //     print_array(&l_bias_updates[0], l.nbiases, 0, "SGX bactnorm forw bias updates before");
         // }
         backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.out_c, l.out_w*l.out_h);
@@ -314,7 +314,9 @@ void backward_batchnorm_layer(layer& l, network& net)
     {
         auto l_x_norm = l.x_norm->getItemsInRange(0, l.x_norm->getBufferSize());
         auto l_scale_updates = l.scale_updates->getItemsInRange(0, l.scale_updates->getBufferSize());
+        // print_array(&l_scale_updates[0], l.nbiases, 0, "SGX: batchnorm scale updates before");
         backward_scale_cpu(&l_x_norm[0], &l_delta[0], l.batch, l.out_c, l.out_w*l.out_h, &l_scale_updates[0]);
+        // print_array(&l_scale_updates[0], l.nbiases, 0, "SGX: batchnorm scale updates after");
         l.scale_updates->setItemsInRange(0, l.scale_updates->getBufferSize(), l_scale_updates);
     }
 
@@ -482,7 +484,7 @@ void backward_batchnorm_layer_gpu(layer l, network net)
     // if (net.index == 7) {
     //     cuda_pull_array(l.delta_gpu,l.delta,l.outputs*l.batch);
     //     std::string text = std::string("GPU bactnorm delta after gradient on activation layer ") + std::to_string(net.index);
-    //     print_array(l.delta,1*l.outputs,0,text.c_str());
+    //     print_array(l.delta+(l.batch/2)*l.outputs,1*l.outputs,(l.batch/2)*l.outputs,text.c_str());
     //     cuda_pull_array(l.bias_updates_gpu, l.bias_updates, l.nbiases);
     //     print_array(l.bias_updates, l.nbiases, 0, "GPU bactnorm forw bias updates before");
     // }
@@ -492,8 +494,12 @@ void backward_batchnorm_layer_gpu(layer l, network net)
     //     cuda_pull_array(l.bias_updates_gpu, l.bias_updates, l.nbiases);
     //     print_array(l.bias_updates, l.nbiases, 0, "GPU bactnorm forw bias updates after");
     // }
-
+    
+    // cuda_pull_array(l.scale_updates_gpu, l.scale_updates, l.nbiases);
+    // print_array(l.scale_updates, l.nbiases, 0, "GPU: batchnorm scale updates before");
     backward_scale_gpu(l.x_norm_gpu, l.delta_gpu, l.batch, l.out_c, l.out_w*l.out_h, l.scale_updates_gpu);
+    // cuda_pull_array(l.scale_updates_gpu, l.scale_updates, l.nbiases);
+    // print_array(l.scale_updates, l.nbiases, 0, "GPU: batchnorm scale updates after");
 
     scale_bias_gpu(l.delta_gpu, l.scales_gpu, l.batch, l.out_c, l.out_h*l.out_w);
 

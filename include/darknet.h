@@ -806,6 +806,9 @@ uint64_t
 count_layer_paramas_bytes(const layer &l);
 
 uint64_t
+count_layer_paramas_fbrmmv_bytes(const layer &l,const network& net,bool prev_delta);
+
+uint64_t
 count_layer_paramas_updates_bytes(const layer &l);
 #ifdef OPENCV
 void *open_video_stream(const char *f, int c, int w, int h, int fps);
@@ -968,6 +971,9 @@ float rand_uniform(PRNG&,float min, float max);
     float temperature;
     float probability;
     float scale;
+
+    double* right_rand_weight_updates;
+    float* input_rand_weight_updates;
 
     //char  * cweights;
     std::shared_ptr<sgx::trusted::SpecialBuffer<char>> cweights;
@@ -1224,6 +1230,7 @@ typedef struct network{
     std::shared_ptr<PRNG> iter_batch_rng;
     std::shared_ptr<PRNG> layer_rng_deriver;
     float gradient_clip;
+    int sgx_net_verifies;
 } network;
 
 #endif
