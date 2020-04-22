@@ -308,8 +308,8 @@ void backward_network(network *netp)
     network orig = net;
     for(i = net.n-1; i >= 0; --i){
         layer l = net.layers[i];
-        //LOG_DEBUG("processing backward layer %d of %d with %d weights and %d biases of type %s\n",i+1,net.n,l.nweights,l.nbiases,
-        //        get_layer_string(l.type))
+        LOG_DEBUG("processing backward layer %d of %d with %d weights and %d biases of type %s\n",i+1,net.n,l.nweights,l.nbiases,
+               get_layer_string(l.type))
         if(l.stopbackward) break;
         if(i == 0){
             net = orig;
