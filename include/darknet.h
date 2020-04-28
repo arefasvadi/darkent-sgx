@@ -972,8 +972,14 @@ float rand_uniform(PRNG&,float min, float max);
     float probability;
     float scale;
 
-    double* right_rand_weight_updates;
-    float* input_rand_weight_updates;
+    float* frwd_outs_rand;
+    float* frwd_outs_rhs;
+
+    float* bkwrd_input_delta_rand;
+    float* bkwrd_input_delta_rhs;
+
+    double* bkwrd_weight_delta_rhs;
+    float* bkwrd_weight_delta_rand;
 
     //char  * cweights;
     std::shared_ptr<sgx::trusted::SpecialBuffer<char>> cweights;
@@ -1230,7 +1236,7 @@ typedef struct network{
     std::shared_ptr<PRNG> iter_batch_rng;
     std::shared_ptr<PRNG> layer_rng_deriver;
     float gradient_clip;
-    int sgx_net_verifies;
+    int sgx_net_rmm_verifies;
 } network;
 
 #endif

@@ -8,6 +8,86 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wregister"
 
+#if defined(USE_SGX) && defined(USE_DNNL_GEM)
+#undef error
+#include "/opt/intel/sgxsdk/include/dnnl.hpp"
+#include "example_utils.hpp"
+using namespace dnnl;
+#if 0
+using dim_t = dnnl::memory::dim;
+engine eng1(engine::kind::cpu, 0);
+engine eng2(engine::kind::cpu, 0);
+
+// Create a _dynamic_ MatMul primitive that can work with arbitrary shapes
+// and alpha parameters.
+// Warning: current limitation is that beta parameter should be known in
+// advance (use fixed_beta).
+float FIXED_BETA_0 = 0.0f;
+float FIXED_BETA_1 = 1.0f;
+
+matmul dynamic_matmul_create_beta1(float fixed_beta) {
+    // We assume that beta is known at the primitive creation time
+    float beta = fixed_beta;
+    memory::dims a_shape = {DNNL_RUNTIME_DIM_VAL, DNNL_RUNTIME_DIM_VAL};
+    memory::dims b_shape = {DNNL_RUNTIME_DIM_VAL, DNNL_RUNTIME_DIM_VAL};
+    memory::dims c_shape = {DNNL_RUNTIME_DIM_VAL, DNNL_RUNTIME_DIM_VAL};
+    memory::dims a_strides = {DNNL_RUNTIME_DIM_VAL, DNNL_RUNTIME_DIM_VAL};
+    memory::dims b_strides = {DNNL_RUNTIME_DIM_VAL, DNNL_RUNTIME_DIM_VAL};
+    memory::dims c_strides = {DNNL_RUNTIME_DIM_VAL, 1};
+    memory::desc a_md(a_shape, memory::data_type::f32, a_strides);
+    memory::desc b_md(b_shape, memory::data_type::f32, b_strides);
+    memory::desc c_md(c_shape, memory::data_type::f32, c_strides);
+    // Create attributes (to handle alpha dynamically and beta if necessary)
+    primitive_attr attr;
+    attr.set_output_scales(/* mask */ 0, {DNNL_RUNTIME_F32_VAL});
+    if (beta != 0.f) {
+        post_ops po;
+        po.append_sum(beta);
+        attr.set_post_ops(po);
+    }
+    // Create a MatMul primitive
+    matmul::desc matmul_d(a_md, b_md, c_md);
+    matmul::primitive_desc matmul_pd(matmul_d, attr, eng);
+    return matmul(matmul_pd);
+}
+
+// Execute a _dynamic_ MatMul primitive created earlier. All the parameters are
+// passed at a run-time (except for beta which has to be specified at the
+// primitive creation time due to the current limitation).
+void dynamic_matmul_execute(float fixed_beta,matmul &matmul_p, char transA, char transB,
+        int64_t M, int64_t N, int64_t K, float alpha, const float *A,
+        int64_t lda, const float *B, int64_t ldb, float beta, float *C,
+        int64_t ldc) {
+    using dims = memory::dims;
+    if (beta != fixed_beta)
+        throw std::logic_error("Run-time beta is not yet supported.");
+    engine eng;
+    if (fixed_beta == FIXED_BETA_0) {
+        eng = eng1;
+    }
+    else if (fixed_beta == FIXED_BETA_1) {
+        eng = eng2;
+    }
+    // Translate transA and transB
+    dims a_strides = tolower(transA) == 'n' ? dims {lda, 1} : dims {1, lda};
+    dims b_strides = tolower(transB) == 'n' ? dims {ldb, 1} : dims {1, ldb};
+    // Wrap raw pointers into oneDNN memories (with proper shapes)
+    memory A_m({{M, K}, memory::data_type::f32, a_strides}, eng, (void *)A);
+    memory B_m({{K, N}, memory::data_type::f32, b_strides}, eng, (void *)B);
+    memory C_m({{M, N}, memory::data_type::f32, {ldc, 1}}, eng, (void *)C);
+    // Prepare oneDNN memory for alpha
+    memory alpha_m({{1}, memory::data_type::f32, {1}}, eng, &alpha);
+    // Execute the MatMul primitive
+    stream s(eng);
+    matmul_p.execute(s,
+            {{DNNL_ARG_SRC, A_m}, {DNNL_ARG_WEIGHTS, B_m}, {DNNL_ARG_DST, C_m},
+                    {DNNL_ARG_ATTR_OUTPUT_SCALES, alpha_m}});
+    s.wait();
+}
+#endif
+
+#endif
+
 #if defined(USE_SGX) && defined (USE_GEMM_THREADING_SGX)
 gemm_multi_thread_params_t gemm_params = {};
 std::vector<gemm_thread_task_t> per_thr_params = {};
@@ -187,7 +267,23 @@ void gemm(int TA, int TB, int M, int N, int K, float ALPHA,
         float BETA,
         float *C, int ldc)
 {
+    #if defined(USE_DNNL_GEM) && defined (USE_SGX)
+    char transa = TA == 1 ? 't':'n';
+    char transb = TB == 1 ? 't':'n';
+    //if (BETA == 0) {
+
+    //}
+    //else if (BETA == 1) {
+        
+    //}
+    //else {
+    //    LOG_ERROR("BETA should be 0,1");
+    //    abort();
+    //}
+    dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
+    #else
     gemm_cpu( TA,  TB,  M, N, K, ALPHA,A,lda, B, ldb,BETA,C,ldc);
+    #endif
 }
 
 void gemm_nn(int M, int N, int K, float ALPHA, 

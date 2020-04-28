@@ -914,8 +914,12 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
   //l.weight_updates = (float *)calloc(c / groups * n * size * size, sizeof(float));
   if (global_training) {
     l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(c / groups * n * size * size);
-    l.right_rand_weight_updates = (double*)calloc(l.n/l.groups,sizeof(double));
-    l.input_rand_weight_updates = (float*)calloc(c / groups * size * size,sizeof(float));
+    l.bkwrd_weight_delta_rhs = (double*)calloc(l.n/l.groups,sizeof(double));
+    l.bkwrd_weight_delta_rand = (float*)calloc(c / groups * size * size,sizeof(float));
+    l.frwd_outs_rand = (float*)calloc(l.n/l.groups,sizeof(float));
+    l.frwd_outs_rhs = (float*)calloc(c / groups * size * size,sizeof(float));
+    l.bkwrd_input_delta_rand = (float*)calloc(c / groups * size * size,sizeof(float));
+    l.bkwrd_input_delta_rhs = (float*)calloc(l.n/l.groups,sizeof(float));
   }
 
   //l.biases = (float *)calloc(n, sizeof(float));
@@ -1057,23 +1061,23 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
     return l;
 }
 
-void convolutional_get_MM_output_left_compare(layer& l, network& net,std::vector<float> &rand_vec,
-                                              std::vector<float> &rand_right,float* result_out) {
+void convolutional_get_MM_output_left_compare(layer& l, network& net,float* rand_vec,
+                                              float* rand_right,float* result_out) {
   int m = l.n / l.groups;
   int k = l.size * l.size * l.c / l.groups;
   int n = l.out_w * l.out_h;
-  std::vector<float> rand_left(m,0);
-  gemm(0,0,m,1,k,1,
-  result_out,k,
-  rand_vec.data(),1,
+  std::vector<float> rand_left(n,0);
+  gemm(0,0,1,n,m,1,
+  rand_vec,m,
+  result_out,n,
   1,
-  rand_left.data(),1);
+  rand_left.data(),n);
   
-  if (rand_right.size()!=rand_left.size()) {
-        LOG_ERROR("size mismatch\n")
-        abort();
-  }
-  for (int i=0;i<rand_right.size();++i) {
+  //if (rand_right.size()!=rand_left.size()) {
+  //      LOG_ERROR("size mismatch\n")
+  //      abort();
+  //}
+  for (int i=0;i<rand_left.size();++i) {
       if (std::fabs(rand_right[i]-rand_left[i]) > 0.000001f) {
           LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
               i,rand_right[i],rand_left[i])
@@ -1094,66 +1098,60 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   
   int q = (l.c/l.groups) / l.enclave_layered_batch;
   int r = (l.c/l.groups) % l.enclave_layered_batch;
-  auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+  
   auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
   auto n_input = net.input->getItemsInRange(0, net.input->getBufferSize());
   int i, j;
   int m = l.n/l.groups;
   int k = l.size*l.size*l.c/l.groups;
   int n = l.out_w*l.out_h;
-  std::vector<float> randomized_vec(n);
-  for (int i=0;i<randomized_vec.size();++i) {
-    randomized_vec[i] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
-                std::numeric_limits<float>::max());
-  }
+  
   auto n_workspace = l.size != 1 ? std::unique_ptr<float[]>(
                          new float[l.enclave_layered_batch * l.out_h * l.out_w
                                    * l.size * l.size])
                                  : std::unique_ptr<float[]>(nullptr);
+  std::vector<float> mm_randomized_output_right(n,0);
   for(i = 0; i < l.batch; ++i){
     for(j = 0; j < l.groups; ++j){
-      std::vector<float> mm_randomized_output_right(m,0);
-      std::vector<float> mm_randomized_mid_right(k,0);
-      float *a = &l_weights[0] + j * l.nweights / l.groups;
+      std::memset(mm_randomized_output_right.data(), 0, 
+        mm_randomized_output_right.size()*sizeof(float));
+      //float *a = &l_weights[0] + j * l.nweights / l.groups;
       float *b = nullptr; //&n_workspace[0];
       float *c = &l_output[0] + (i * l.groups + j) * n * m;
       float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
       if (l.size == 1) {
         b = im;
-        gemm(0,0,k,1,n,1,
+        gemm(0,0,1,n,k,1,
+        l.frwd_outs_rhs,k,
         b,n,
-        randomized_vec.data(),1,
         1,
-        mm_randomized_mid_right.data(),1);
+        mm_randomized_output_right.data(),n);
       }
       else {
         for (int chan = 0; chan < q; chan++) {
           std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
           b = &n_workspace[0];
           im2col_cpu(im+(chan*l.enclave_layered_batch*l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
-          gemm(0,0,l.size*l.size*l.enclave_layered_batch/l.groups,1,n,1,
+          gemm(0,0,1,n,l.size*l.size*l.enclave_layered_batch/l.groups,1,
+          l.frwd_outs_rhs+(chan*l.size*l.size*l.enclave_layered_batch/l.groups),l.size*l.size*l.enclave_layered_batch/l.groups,
           b,n,
-          randomized_vec.data(),1,
           1,
-          mm_randomized_mid_right.data()+(chan*l.size*l.size*l.enclave_layered_batch),1);
+          mm_randomized_output_right.data(),n);
         }
         if (r > 0) {
-          std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
+          std::memset(&n_workspace[0], 0, 
+            sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
           b = &n_workspace[0];
           im2col_cpu(im+(q*l.enclave_layered_batch*l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
-          gemm(0,0,l.size*l.size*r/l.groups,1,n,1,
+          gemm(0,0,1,n,l.size*l.size*r/l.groups,1,
+          l.frwd_outs_rhs+(q*l.size*l.size*l.enclave_layered_batch),l.size*l.size*r/l.groups,
           b,n,
-          randomized_vec.data(),1,
           1,
-          mm_randomized_mid_right.data()+(q*l.size*l.size*l.enclave_layered_batch),1);
+          mm_randomized_output_right.data(),n);
         }
       }
-      gemm(0,0,m,1,k,1,
-      a,k,
-      mm_randomized_mid_right.data(),1,
-      1,
-      mm_randomized_output_right.data(),1);
-      convolutional_get_MM_output_left_compare(l, net,randomized_vec, mm_randomized_output_right,c);
+      convolutional_get_MM_output_left_compare(l, net,l.frwd_outs_rand, 
+        mm_randomized_output_right.data(),c);
     }
   }
   //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
@@ -1176,7 +1174,7 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
 
 void forward_convolutional_layer(convolutional_layer& l, network& net)
 {
-  if (net.sgx_net_verifies) {
+  if (net.sgx_net_rmm_verifies) {
     forward_convolutional_layer_verifies_frbmmv(l,net);
     return;
   }
@@ -1263,8 +1261,14 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
 
 void backward_convolutional_layer(convolutional_layer& l, network& net)
 {
+    if (net.sgx_net_rmm_verifies) {
+        backward_convolutional_layer_verifies_frbmmv(l,net);
+        return;
+    }
     //LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("before backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
+    std::string f_time_id("8 conv backward first step");
+    ocall_set_timing(f_time_id.c_str(), f_time_id.size()+1, 1, 0);
     int i, j;
     int m = l.n/l.groups;
     int n = l.size*l.size*l.c/l.groups;
@@ -1272,17 +1276,16 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
     
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
     auto net_delta  = net.delta ? net.delta->getItemsInRange(0, net.delta->getBufferSize()):std::unique_ptr<float[]>(nullptr);
-  
-    auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
-    //auto net_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
-    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
 
     int q = (l.c/l.groups) / l.enclave_layered_batch;
     int r = (l.c/l.groups) % l.enclave_layered_batch;
 
     {
+      std::string ff_time_id("8 conv backward first step apply grad activation");
+      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
       auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
       gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
     }
     // if (net.index == 7) {
     //   std::string text = std::string("SGX convolution delta after gradient on activation layer ") + std::to_string(net.index);
@@ -1291,36 +1294,42 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
     if(l.batch_normalize){
         // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
         // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates bn before");
+        std::string ff_time_id("8 conv backward first step BN");
+        ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
         l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
         backward_batchnorm_layer(l, net);
         // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
         // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
         l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+        ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
     } else {
+      std::string ff_time_id("8 conv backward first step BIAS");
+      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
       auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
       // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates before");
       backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.n, k);
       // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
       l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
     }
-
-    if (net.sgx_net_verifies) {
-        l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
-        backward_convolutional_layer_verifies_frbmmv(l,net);
-        return;
-    }
+    ocall_set_timing(f_time_id.c_str(), f_time_id.size()+1, 0, 1);
 
     auto net_workspace = l.size != 1 ? std::unique_ptr<float[]>(
                          new float[l.enclave_layered_batch * l.out_h * l.out_w
                                    * l.size * l.size])
                                  : std::unique_ptr<float[]>(nullptr);
     auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+    auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
+    //auto net_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
+    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
     if (net.delta == nullptr) {
       auto del_ptr = l_weights.release();
       delete[] del_ptr;
     } 
     for(i = 0; i < l.batch; ++i){
         for(j = 0; j < l.groups; ++j){
+          std::string time_id("8 conv backward weights delta");
+          ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
           float *a = &l_delta[0] + (i*l.groups + j)*m*k;
           float *b = nullptr;   //&net_workspace[0];
           float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
@@ -1347,8 +1356,10 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
               }
           }
           //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
-
+          ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
           if (net.delta != nullptr) {
+            std::string time_id("7 conv backward input delta");
+            ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
             // auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
             a = &l_weights[0] + j*l.nweights/l.groups;
             b = &l_delta[0] + (i*l.groups + j)*m*k;
@@ -1375,6 +1386,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
                 //gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
                 //col2im_cpu(&net_workspace[0], l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
             }
+            ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
           }
         }
     }
@@ -1389,32 +1401,35 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
     //LOG_DEBUG("after backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
 }
 
-void convolutional_get_MM_weight_updates_left_compare(layer& l, network& net) {
+void convolutional_get_MM_weight_updates_left_compare(layer& l, network& net,float* l_weight_updates) {
   std::vector<float> rand_left(l.n/l.groups,0);
-  auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
+  //auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
+  std::string time_id("8 conv backward weights delta comparison");
+  ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
   gemm(0,0,l.n/l.groups,1,(l.size*l.size*l.c/l.groups),1,
-    l_weight_updates.get(),(l.size*l.size*l.c/l.groups),
-    l.input_rand_weight_updates,1,
+    l_weight_updates,(l.size*l.size*l.c/l.groups),
+    l.bkwrd_weight_delta_rand,1,
     1,
     rand_left.data(),1
   );
   for (int i=0;i<rand_left.size();++i) {
-    if (std::abs(l.right_rand_weight_updates[i]-rand_left[i]) > 0.00001f) {
+    if (std::abs(l.bkwrd_weight_delta_rhs[i]-rand_left[i]) > 0.00001f) {
       LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
-          i,l.right_rand_weight_updates[i],rand_left[i])
+          i,l.bkwrd_weight_delta_rhs[i],rand_left[i])
       abort();
     }
   }
+  ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
 }
 
-void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,std::vector<float> &rand_vec,
-                                                std::vector<float> &rand_right,float* imd,float* net_workspace,
+void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,float* rand_vec,
+                                                float* rand_right,float* imd,float* net_workspace,
                                                 int iter,
                                                 int subdiv, int batch_num) {
   int q = (l.c/l.groups) / l.enclave_layered_batch;
   int r = (l.c/l.groups) % l.enclave_layered_batch;
   int layer_index = net.index;
-  std::vector<float> rand_left(l.size*l.size*l.c/l.groups,0);
+  std::vector<float> rand_left(l.out_h*l.out_w,0);
   sgx_status_t ret = SGX_ERROR_UNEXPECTED;
   size_t start_prevdelta = ((subdiv*l.batch*(l.size*l.size*l.c/l.groups)*l.out_w*l.out_h)+
                  (batch_num*(l.size*l.size*l.c/l.groups)*l.out_w*l.out_h))*sizeof(float);
@@ -1423,6 +1438,8 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,s
     // LOG_DEBUG("prev delta conv layer %d,iter=%d,subdiv=%d,net_batch=%d,net_enclavesubdiv=%d\nbatch=%d,q=%d,r=%d,l.size=%d\n",
     //   layer_index,iter,subdiv,net.batch,net.enclave_subdivisions,batch_num,q,r,l.size)
   // }
+  std::string time_id("8 conv backward input delta comparison");
+  ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
   if (l.size == 1) {
     OCALL_LOAD_LAYER_REPRT_FRBMMV(iter, layer_index,
             0,nullptr,0,nullptr,0,
@@ -1430,18 +1447,11 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,s
             start_prevdelta,
             (uint8_t*)imd, (l.c*l.out_w*l.out_h)*sizeof(float),
             nullptr,0);
-    // ret = ocall_load_layer_report_frbmmv(iter, layer_index,
-    //         0,nullptr,0,nullptr,0,
-    //         0,nullptr,0,nullptr,0,
-    //         start_prevdelta,
-    //         (uint8_t*)imd, (l.c*l.out_w*l.out_h)*sizeof(float),
-    //         nullptr,0);
-    // CHECK_SGX_SUCCESS(ret, "ocall_load_layer_report_frbmmv caused problem!\n")
-    gemm(0,0,(l.c),1,(l.out_w*l.out_h),1,
+    gemm(0,0,1,(l.out_w*l.out_h),l.c/l.groups,1,
+      rand_vec,l.c/l.groups,
       imd,(l.out_w*l.out_h),
-      rand_vec.data(),1,
       1,
-      rand_left.data(),1
+      rand_left.data(),(l.out_w*l.out_h)
     );
   }
   else {
@@ -1455,19 +1465,11 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,s
               (uint8_t*)net_workspace,l.enclave_layered_batch * l.out_h * l.out_w
                                    * l.size * l.size*sizeof(float),
               nullptr,0);
-      // ret = ocall_load_layer_report_frbmmv(iter, layer_index,
-      //         0,nullptr,0,nullptr,0,
-      //         0,nullptr,0,nullptr,0,
-      //         start_prevdelta,
-      //         (uint8_t*)net_workspace,l.enclave_layered_batch * l.out_h * l.out_w
-      //                              * l.size * l.size*sizeof(float),
-      //         nullptr,0);
-      // CHECK_SGX_SUCCESS(ret, "ocall_load_layer_report_frbmmv caused problem!\n")
-      gemm(0,0,(l.size*l.size*l.enclave_layered_batch),1,(l.out_w*l.out_h),1,
+      gemm(0,0,1,(l.out_w*l.out_h),(l.size*l.size*l.enclave_layered_batch),1,
+        rand_vec+chan*(l.size*l.size*l.enclave_layered_batch),(l.size*l.size*l.enclave_layered_batch),
         net_workspace,(l.out_w*l.out_h),
-        rand_vec.data(),1,
         1,
-        rand_left.data()+chan*l.enclave_layered_batch*l.size*l.size,1
+        rand_left.data(),(l.out_w*l.out_h)
       );
       col2im_cpu(net_workspace, l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, imd+(chan*l.enclave_layered_batch*l.h*l.w));
       start_prevdelta += (l.size*l.size*l.enclave_layered_batch*l.out_w*l.out_h)*sizeof(float);
@@ -1482,19 +1484,11 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,s
               (uint8_t*)net_workspace,r * l.out_h * l.out_w
                                    * l.size * l.size*sizeof(float),
               nullptr,0);
-      // ret = ocall_load_layer_report_frbmmv(iter, layer_index,
-      //         0,nullptr,0,nullptr,0,
-      //         0,nullptr,0,nullptr,0,
-      //         start_prevdelta,
-      //         (uint8_t*)net_workspace,r * l.out_h * l.out_w
-      //                              * l.size * l.size*sizeof(float),
-      //         nullptr,0);
-      // CHECK_SGX_SUCCESS(ret, "ocall_load_layer_report_frbmmv caused problem!\n")
-      gemm(0,0,(l.size*l.size*r),1,(l.out_w*l.out_h),1,
+      gemm(0,0,1,(l.out_w*l.out_h),(l.size*l.size*r),1,
+        rand_vec+q*(l.size*l.size*l.enclave_layered_batch),(l.size*l.size*r),
         net_workspace,(l.out_w*l.out_h),
-        rand_vec.data(),1,
         1,
-        rand_left.data()+q*l.size*l.size,1
+        rand_left.data(),(l.out_w*l.out_h)
       );
       col2im_cpu(net_workspace, r, l.h, l.w, l.size, l.stride, l.pad, imd+(q*l.enclave_layered_batch*l.h*l.w));
       start_prevdelta += (r*l.size*l.size*l.out_w*l.out_h)*sizeof(float);
@@ -1503,27 +1497,70 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,s
   
   // iteration, layer_index, subdiv,batch
   // TODO check the validity of report
-  if (rand_right.size()!=rand_left.size()) {
-    LOG_ERROR("size mismatch\n")
-    abort();
-  }
-  for (int i=0;i<rand_right.size();++i) {
+  // if (rand_right.size()!=rand_left.size()) {
+  //  LOG_ERROR("size mismatch\n")
+  //  abort();
+  // }
+  for (int i=0;i<rand_left.size();++i) {
     if (std::fabs(rand_right[i]-rand_left[i]) > 0.00001f) {
-        // LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
-        //     i,rand_left[i],rand_right[i])
-        // abort();
+      LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+          i,rand_left[i],rand_right[i])
+      abort();
     }
   }
+  ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
 }
 
 void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv layer index=%d\n",net.index)
+  // LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
+  //LOG_DEBUG("before backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
+  std::string f_time_id("8 conv backward first step");
+  ocall_set_timing(f_time_id.c_str(), f_time_id.size()+1, 1, 0);
+  int i, j;
+  int m = l.n/l.groups;
+  int n = l.size*l.size*l.c/l.groups;
+  int k = l.out_w*l.out_h;
+  
   auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-  auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
   auto net_delta  = net.delta ? net.delta->getItemsInRange(0, net.delta->getBufferSize()):std::unique_ptr<float[]>(nullptr);
-  auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+
   int q = (l.c/l.groups) / l.enclave_layered_batch;
   int r = (l.c/l.groups) % l.enclave_layered_batch;
+
+  {
+    std::string ff_time_id("8 conv backward first step apply grad activation");
+    ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
+    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+    ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
+  }
+  // if (net.index == 7) {
+  //   std::string text = std::string("SGX convolution delta after gradient on activation layer ") + std::to_string(net.index);
+  //   print_array(&l_delta[0],2*l.outputs,0,text.c_str());
+  // }
+  if(l.batch_normalize){
+      // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+      // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates bn before");
+      std::string ff_time_id("8 conv backward first step BN");
+      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
+      l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+      backward_batchnorm_layer(l, net);
+      // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+      // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
+      l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
+  } else {
+    std::string ff_time_id("8 conv backward first step BIAS");
+    ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
+    auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+    // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates before");
+    backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.n, k);
+    // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
+    l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
+  }
+  ocall_set_timing(f_time_id.c_str(), f_time_id.size()+1, 0, 1);
   std::vector<float> mm_randomized_output_right(l.n/l.groups,0);
   std::vector<float> mm_randomized_mid_right(l.out_w*l.out_h,0);
   // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv passed 1st point layer index=%d\n",net.index)
@@ -1533,26 +1570,27 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
                                    * l.size * l.size])
                                  : std::unique_ptr<float[]>(nullptr);
   // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv passed 2nd point layer index=%d\n",net.index)
-  auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
-  if (net.delta == nullptr) {
-    auto del_ptr = l_weights.release();
-    delete[] del_ptr;
-  }
+  // precomputed the weight with rand
+  //auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+  // if (net.delta == nullptr) {
+  //   auto del_ptr = l_weights.release();
+  //   delete[] del_ptr;
+  // }
+  
   // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv passed 3rd point layer index=%d\n",net.index)
-  int i,j;
-  int m = l.n/l.groups;
-  int n = l.size*l.size*l.c/l.groups;
-  int k = l.out_w*l.out_h;
   int iter = ((*net.seen-net.batch)/(net.batch*net.enclave_subdivisions)) + 1;
   int subdiv = (((*net.seen-net.batch)/net.batch)%net.enclave_subdivisions);
-  
+  auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
   // perform weight_updates rand mult
   for(i = 0; i < l.batch; ++i){
     for(j = 0; j < l.groups; ++j){
+      std::string time_id("8 conv backward weights delta");
+      ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
       // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv wu mult layer index=%d\n",net.index)
       float *a = &l_delta[0] + (i*l.groups + j)*m*k;
       float *b = nullptr;   //&net_workspace[0];
-      float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
+      //float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
+      float *c = nullptr;
       float *im  = &net_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
       std::memset(mm_randomized_mid_right.data(),0,mm_randomized_mid_right.size()*sizeof(float));
       std::memset(mm_randomized_output_right.data(),0,mm_randomized_output_right.size()*sizeof(float));
@@ -1560,7 +1598,7 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
         b = im;
         gemm(1,0,(l.out_w*l.out_h),1,l.size*l.size*l.c/l.groups,1,
           b,(l.out_w*l.out_h),
-          l.input_rand_weight_updates,1,
+          l.bkwrd_weight_delta_rand,1,
           1,
           mm_randomized_mid_right.data(),1
         );
@@ -1572,7 +1610,7 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
           im2col_cpu(im+chan*l.enclave_layered_batch*(l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
           gemm(1,0,(l.out_w*l.out_h),1,l.size*l.size*l.enclave_layered_batch,1,
             b,(l.out_w*l.out_h),
-            l.input_rand_weight_updates+(chan*l.size*l.size*l.enclave_layered_batch),1,
+            l.bkwrd_weight_delta_rand+(chan*l.size*l.size*l.enclave_layered_batch),1,
             1,
             mm_randomized_mid_right.data(),1
           );
@@ -1583,7 +1621,7 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
           im2col_cpu(im+q*l.enclave_layered_batch*(l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
           gemm(1,0,(l.out_w*l.out_h),1,l.size*l.size*r,1,
             b,(l.out_w*l.out_h),
-            l.input_rand_weight_updates+(q*l.size*l.size*l.enclave_layered_batch),1,
+            l.bkwrd_weight_delta_rand+(q*l.size*l.size*l.enclave_layered_batch),1,
             1,
             mm_randomized_mid_right.data(),1
           );
@@ -1598,40 +1636,33 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
       );
       // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv sum for wu mult layer index=%d\n",net.index)
       for (int ss=0;ss<mm_randomized_output_right.size();++ss) {
-        l.right_rand_weight_updates[ss] += mm_randomized_output_right[ss];
+        l.bkwrd_weight_delta_rhs[ss] += mm_randomized_output_right[ss];
       }
+      ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
       // prev delta
       if (net.delta != nullptr) {
+        std::string time_id("7 conv backward input delta");
+        ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
         // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv net_delta section layer index=%d\n",net.index)
-        std::vector<float> net_delta_randomized_vec(l.out_w*l.out_h);
-        for (int ss=0;ss<net_delta_randomized_vec.size();++ss) {
-          net_delta_randomized_vec[ss] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
-                      std::numeric_limits<float>::max());
-        }
-        std::vector<float> net_delta_mm_randomized_output_right(l.size*l.size*l.c/l.groups,0);
-        std::vector<float> net_delta_mm_randomized_mid_right(l.n/l.groups,0);
-        a = &l_weights[0] + j*l.nweights/l.groups;
+        std::vector<float> net_delta_mm_randomized_output_right(l.out_w*l.out_h,0);
+        //a = &l_weights[0] + j*l.nweights/l.groups;
         b = &l_delta[0] + (i*l.groups + j)*m*k;
         float *imd = &net_delta[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
         c = nullptr;  // &net_workspace[0];
-        gemm(0,0,l.n/l.groups,1,l.out_w*l.out_h,1,
-            b,(l.out_w*l.out_h),
-            net_delta_randomized_vec.data(),1,
-            1,
-            net_delta_mm_randomized_mid_right.data(),1
-        );
-        gemm(1,0,(l.size*l.size*l.c/l.groups),1,l.n/l.groups,1,
-          a,(l.size*l.size*l.c/l.groups),
-          net_delta_mm_randomized_mid_right.data(),1,
+        
+        gemm(0,0,1,(l.out_h*l.out_w),l.n/l.groups,1,
+          l.bkwrd_input_delta_rhs,l.n/l.groups,
+          l_delta.get(),(l.out_h*l.out_w),
           1,
-          net_delta_mm_randomized_output_right.data(),1
+          net_delta_mm_randomized_output_right.data(),(l.out_h*l.out_w)
         );
         // verify prev delta for this batch element
         // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv calling to convolutional_get_MM_output_prevdelta_left_compare section layer index=%d\n",net.index)
-        convolutional_get_MM_output_prevdelta_left_compare(l, net,net_delta_randomized_vec,
-                                                net_delta_mm_randomized_output_right,imd,net_workspace.get(),
+        convolutional_get_MM_output_prevdelta_left_compare(l, net,l.bkwrd_input_delta_rand,
+                                                net_delta_mm_randomized_output_right.data(),imd,net_workspace.get(),
                                                 iter,
                                                 subdiv, i);
+        ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
       }
     }
   }
@@ -1640,7 +1671,8 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   }
   // check if last backward for this SGD step considering l.batch and l.enclave_subdiv
   if(((*net.seen)/net.batch)%net.enclave_subdivisions == 0) {
-    convolutional_get_MM_weight_updates_left_compare(l, net);
+    auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
+    convolutional_get_MM_weight_updates_left_compare(l, net,l_weight_updates.get());
   }
 }
 

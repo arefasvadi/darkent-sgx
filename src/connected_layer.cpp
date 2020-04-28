@@ -581,8 +581,12 @@ layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activa
     //l.weight_updates = (float*)calloc(inputs*outputs, sizeof(float));
     if (global_training) {
         l.weight_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*outputs);
-        l.right_rand_weight_updates = (double*)calloc(l.outputs,sizeof(double));
-        l.input_rand_weight_updates = (float*)calloc(l.inputs,sizeof(float));
+        l.bkwrd_weight_delta_rhs = (double*)calloc(l.outputs,sizeof(double));
+        l.bkwrd_weight_delta_rand = (float*)calloc(l.inputs,sizeof(float));
+        l.frwd_outs_rand = (float*)calloc(l.outputs,sizeof(float));
+        l.frwd_outs_rhs = (float*)calloc(l.inputs,sizeof(float));
+        l.bkwrd_input_delta_rand = (float*)calloc(l.inputs,sizeof(float));
+        l.bkwrd_input_delta_rhs = (float*)calloc(l.outputs,sizeof(float));
     }
     //l.bias_updates = (float*)calloc(outputs, sizeof(float));
     if (global_training) l.bias_updates = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(outputs);
@@ -756,7 +760,7 @@ void update_connected_layer(layer& l, update_args a)
 
 void forward_connected_layer(layer& l, network& net)
 {   
-    if (net.sgx_net_verifies) {
+    if (net.sgx_net_rmm_verifies) {
         forward_connected_layer_verifies_frbmmv(l,net);
         return;
     }
@@ -828,7 +832,7 @@ void backward_connected_layer(layer& l, network& net)
         l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
     }
 
-    if (net.sgx_net_verifies) {
+    if (net.sgx_net_rmm_verifies) {
         l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
         backward_connected_layer_verifies_frbmmv(l,net);
         return;
@@ -888,19 +892,19 @@ void backward_connected_layer(layer& l, network& net)
     }
 }
 
-void connected_get_MM_output_left_compare(layer& l, network& net,std::vector<float> &rand_vec,std::vector<float> &rand_right) {
+void connected_get_MM_output_left_compare(layer& l, network& net,float* rand_vec,float* rand_right,
+float* l_output) {
     std::vector<float> rand_left(l.batch,0);
-    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     gemm(0,0,l.batch,1,l.outputs,1,
-        l_output.get(),l.outputs,
-        rand_vec.data(),1,
+        l_output,l.outputs,
+        rand_vec,1,
         1,
         rand_left.data(),1);
-    if (rand_right.size()!=rand_left.size()) {
-        LOG_ERROR("size mismatch\n")
-        abort();
-    }
-    for (int i=0;i<rand_right.size();++i) {
+    //if (rand_right.size()!=rand_left.size()) {
+    //    LOG_ERROR("size mismatch\n")
+    //    abort();
+    //}
+    for (int i=0;i<rand_left.size();++i) {
         if (std::fabs(rand_right[i]-rand_left[i]) > 0.00001f) {
             LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
                 i,rand_right[i],rand_left[i])
@@ -911,39 +915,16 @@ void connected_get_MM_output_left_compare(layer& l, network& net,std::vector<flo
 
 void forward_connected_layer_verifies_frbmmv(layer& l, network& net) {
     std::vector<float> mm_randomized_output_right(l.batch,0);
-    std::vector<float> mm_randomized_mid_right(l.inputs,0);
-    std::vector<float> randomized_vec(l.outputs);
-    int q = l.outputs / l.enclave_layered_batch;
-    int r = l.outputs % l.enclave_layered_batch;
-    for (int i=0;i<randomized_vec.size();++i) {
-        randomized_vec[i] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
-                    std::numeric_limits<float>::max());
-    }
-    for (int i=0;i<q;++i) {
-        auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs,(i+1)*l.enclave_layered_batch*l.inputs);
-        gemm(1,0,l.inputs,1,l.enclave_layered_batch,1,
-            l_weights.get(),l.inputs,
-            randomized_vec.data()+(i*l.enclave_layered_batch),1,
-            1,
-            mm_randomized_mid_right.data(),1);
-    }
-    if (r > 0) {
-        auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*l.inputs,q*l.enclave_layered_batch*l.inputs+r*l.inputs);
-        gemm(1,0,l.inputs,1,r,1,
-            l_weights.get(),l.inputs,
-            randomized_vec.data()+(q*l.enclave_layered_batch),1,
-            1,
-            mm_randomized_mid_right.data(),1
-        );
-    }
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     gemm(0,0,l.batch,1,l.inputs,1,
         &net_input[0],l.inputs,
-        mm_randomized_mid_right.data(),1,
+        l.frwd_outs_rhs,1,
         1,
         mm_randomized_output_right.data(),1);
-    connected_get_MM_output_left_compare(l,net,randomized_vec,mm_randomized_output_right);
-    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    connected_get_MM_output_left_compare(l,net,
+        l.frwd_outs_rand,mm_randomized_output_right.data(),l_output.get());
+   
     // if (net.index == 13) {
     //     print_array(&l_output[0],l.batch*l.outputs,0,"SGX connected forward input before bias or batchnorm");
     // }
@@ -971,7 +952,7 @@ void connected_get_MM_weight_updates_left_compare(layer& l, network& net) {
         auto l_weight_updates = l.weight_updates->getItemsInRange(i*l.enclave_layered_batch*l.inputs, (i+1)*l.enclave_layered_batch*l.inputs);
         gemm(0,0,l.enclave_layered_batch,1,l.inputs,1,
         l_weight_updates.get(),l.inputs,
-        l.input_rand_weight_updates,1,
+        l.bkwrd_weight_delta_rand,1,
         1,
         rand_left.data()+i*l.enclave_layered_batch,1);
     }
@@ -979,35 +960,35 @@ void connected_get_MM_weight_updates_left_compare(layer& l, network& net) {
         auto l_weight_updates = l.weight_updates->getItemsInRange(q*l.enclave_layered_batch*l.inputs, q*l.enclave_layered_batch*l.inputs+r*l.inputs);
         gemm(0,0,r,1,l.inputs,1,
         l_weight_updates.get(),l.inputs,
-        l.input_rand_weight_updates,1,
+        l.bkwrd_weight_delta_rand,1,
         1,
         rand_left.data()+q*l.enclave_layered_batch,1);
     }
     for (int i=0;i<rand_left.size();++i) {
-        if (std::abs(l.right_rand_weight_updates[i]-rand_left[i]) > 0.00001f) {
-            // LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
-            //     i,rand_left[i],l.right_rand_weight_updates[i])
-            // abort();
+        if (std::abs(l.bkwrd_weight_delta_rhs[i]-rand_left[i]) > 0.00001f) {
+            LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+              i,rand_left[i],l.bkwrd_weight_delta_rhs[i])
+            abort();
         }
     }
 }
 
-void connected_get_MM_output_prevdelta_left_compare(layer& l, network& net,std::vector<float> &rand_vec,
-                                                std::vector<float> &rand_right) {
+void connected_get_MM_output_prevdelta_left_compare(layer& l, network& net,float* rand_vec,
+                                                float* rand_right) {
     std::vector<float> rand_left(l.batch,0);                                                
     auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
     gemm(0,0,l.batch,1,l.inputs,1,
-    net_delta.get(),l.inputs,rand_vec.data(),1,
+    net_delta.get(),l.inputs,rand_vec,1,
     1,
     rand_left.data(),1);
-    if (rand_right.size()!=rand_left.size()) {
-        LOG_ERROR("size mismatch\n")
-        abort();
-    }
-    for (int i=0;i<rand_right.size();++i) {
+    //if (rand_right.size()!=rand_left.size()) {
+    //    LOG_ERROR("size mismatch\n")
+    //    abort();
+    //}
+    for (int i=0;i<rand_left.size();++i) {
         if (std::fabs(rand_right[i]-rand_left[i]) > 0.00001f) {
             LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
-                i,rand_right[i],rand_left[i])
+                i,rand_left[i],rand_right[i])
             abort();
         }
     }
@@ -1016,12 +997,11 @@ void connected_get_MM_output_prevdelta_left_compare(layer& l, network& net,std::
 void backward_connected_layer_verifies_frbmmv(layer& l, network& net) {
     std::vector<float> mm_randomized_output_right(l.outputs,0);
     std::vector<float> mm_randomized_mid_right(l.batch,0);
-    std::vector<float> randomized_vec(l.inputs);
     {
         auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
         gemm(0,0,l.batch,1,l.inputs,1,
         net_input.get(),l.inputs,
-        l.input_rand_weight_updates,1,
+        l.bkwrd_weight_delta_rand,1,
         1,
         mm_randomized_mid_right.data(),1);
     }
@@ -1034,7 +1014,7 @@ void backward_connected_layer_verifies_frbmmv(layer& l, network& net) {
         mm_randomized_output_right.data(),1);
     }
     for (int i=0;i<mm_randomized_output_right.size();++i) {
-        l.right_rand_weight_updates[i] += mm_randomized_output_right[i];
+        l.bkwrd_weight_delta_rhs[i] += mm_randomized_output_right[i];
     }
     if(((*net.seen)/net.batch)%net.enclave_subdivisions == 0) {
         connected_get_MM_weight_updates_left_compare(l, net);
@@ -1042,36 +1022,14 @@ void backward_connected_layer_verifies_frbmmv(layer& l, network& net) {
     if (net.delta) {
         mm_randomized_output_right.resize(l.batch);
         std::memset(mm_randomized_output_right.data(),0,sizeof(float)*l.batch);
-        mm_randomized_mid_right.resize(l.outputs);
-        std::memset(mm_randomized_mid_right.data(),0,sizeof(float)*l.outputs);
-        for (int i=0;i<randomized_vec.size();++i) {
-            randomized_vec[i] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
-                        std::numeric_limits<float>::max());
-        }
-        int q = l.outputs / l.enclave_layered_batch;
-        int r = l.outputs % l.enclave_layered_batch;
-        for (int i=0;i<q;++i) {
-            auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs, (i+1)*l.enclave_layered_batch*l.inputs);
-            gemm(0,0,l.enclave_layered_batch,1,l.inputs,1,
-            l_weights.get(),l.inputs,
-            randomized_vec.data(),1,
-            1,
-            mm_randomized_mid_right.data()+i*l.enclave_layered_batch,1);
-        }
-        if (r!=0) {
-            auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*(l.inputs), q*l.enclave_layered_batch*l.inputs+r*l.inputs);
-            gemm(0,0,r,1,l.inputs,1,
-            l_weights.get(),l.inputs,
-            randomized_vec.data(),1,
-            1,
-            mm_randomized_mid_right.data()+q*l.enclave_layered_batch,1);
-        }
+
         gemm(0,0,l.batch,1,l.outputs,1,
         l_delta.get(),l.outputs,
-        mm_randomized_mid_right.data(),1,
+        l.bkwrd_input_delta_rhs,1,
         1,
         mm_randomized_output_right.data(),1);
-        connected_get_MM_output_prevdelta_left_compare(l, net,randomized_vec, mm_randomized_output_right);
+        connected_get_MM_output_prevdelta_left_compare(l, 
+            net,l.bkwrd_input_delta_rand, mm_randomized_output_right.data());
     }
 }
 
