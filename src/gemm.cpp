@@ -9,9 +9,7 @@
 #pragma GCC diagnostic ignored "-Wregister"
 
 #if defined(USE_SGX) && defined(USE_DNNL_GEM)
-#undef error
-#include "/opt/intel/sgxsdk/include/dnnl.hpp"
-#include "example_utils.hpp"
+#include "prepare-dnnl.h"
 using namespace dnnl;
 #if 0
 using dim_t = dnnl::memory::dim;
@@ -267,20 +265,11 @@ void gemm(int TA, int TB, int M, int N, int K, float ALPHA,
         float BETA,
         float *C, int ldc)
 {
-    #if defined(USE_DNNL_GEM) && defined (USE_SGX)
-    char transa = TA == 1 ? 't':'n';
-    char transb = TB == 1 ? 't':'n';
-    //if (BETA == 0) {
-
-    //}
-    //else if (BETA == 1) {
-        
-    //}
-    //else {
-    //    LOG_ERROR("BETA should be 0,1");
-    //    abort();
-    //}
-    dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
+    #if defined(USE_DNNL_GEM) && defined(USE_SGX)
+    char transa = TA == 1 ? 'T':'N';
+    char transb = TB == 1 ? 'T':'N';
+    //dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
+    primitive_based_sgemm(transa, transb, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
     #else
     gemm_cpu( TA,  TB,  M, N, K, ALPHA,A,lda, B, ldb,BETA,C,ldc);
     #endif

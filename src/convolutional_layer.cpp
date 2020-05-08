@@ -733,10 +733,14 @@ void forward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net) 
         net_report.net_layers_reports[net.index].layer_forward_MM_outputs = std::vector<uint8_t>();
         net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
     }
+    
     auto& layer_report = net_report.net_layers_reports[net.index];
     auto curr_out_size = layer_report.layer_forward_MM_outputs.size();
+    std::string time_id("9991 GPU conv forward outs");
+    set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
     layer_report.layer_forward_MM_outputs.resize(curr_out_size+(l.outputs*l.batch*sizeof(float)));
     cuda_pull_array(l.output_gpu, (float*)(layer_report.layer_forward_MM_outputs.data()+curr_out_size),l.outputs*l.batch);
+    set_timing(time_id.c_str(), time_id.size()+1, 0, 0);
 
     if (l.batch_normalize) {
         forward_batchnorm_layer_gpu(l, net);
@@ -809,10 +813,13 @@ void backward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net)
 
                 gemm_gpu(1,0,n,k,m,1,a,n,b,k,0,c,k);
                 // store the output of MM
+                std::string time_id("9990 GPU Dispatch backward conv delta");
+                set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
                 auto curr_out_size = layer_report.layer_backward_MM_prev_delta.size();
                 layer_report.layer_backward_MM_prev_delta.resize(curr_out_size+(l.size*l.size*l.c*l.out_h*l.out_w*sizeof(float)));
                 cuda_pull_array(c, (float*)(layer_report.layer_backward_MM_prev_delta.data()+curr_out_size),
                   (l.size*l.size*l.c*l.out_h*l.out_w));
+                set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
 
                 if (l.size != 1) {
                     col2im_gpu(net.workspace, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
@@ -1087,6 +1094,7 @@ void convolutional_get_MM_output_left_compare(layer& l, network& net,float* rand
 }
 
 void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
+  SET_START_TIMING(SGX_TIMING_FORWARD_CONV)
   if(l.binary){
     LOG_ERROR("Binary feature not implemented!\n");
     abort();
@@ -1170,6 +1178,7 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
   /* if (l.binary || l.xnor)
     swap_binary(&l); */
+  SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV)
 }
 
 void forward_convolutional_layer(convolutional_layer& l, network& net)
@@ -1178,6 +1187,7 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
     forward_convolutional_layer_verifies_frbmmv(l,net);
     return;
   }
+  SET_START_TIMING(SGX_TIMING_FORWARD_CONV)
   int i, j;
   auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
   auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
@@ -1257,6 +1267,7 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
   l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
   /* if (l.binary || l.xnor)
     swap_binary(&l); */
+  SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV)
 }
 
 void backward_convolutional_layer(convolutional_layer& l, network& net)
@@ -1267,8 +1278,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
     }
     //LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("before backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
-    std::string f_time_id("8 conv backward first step");
-    ocall_set_timing(f_time_id.c_str(), f_time_id.size()+1, 1, 0);
+    SET_START_TIMING(SGX_TIMING_BACKWARD_CONV)
     int i, j;
     int m = l.n/l.groups;
     int n = l.size*l.size*l.c/l.groups;
@@ -1281,11 +1291,8 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
     int r = (l.c/l.groups) % l.enclave_layered_batch;
 
     {
-      std::string ff_time_id("8 conv backward first step apply grad activation");
-      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
       auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
       gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
-      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
     }
     // if (net.index == 7) {
     //   std::string text = std::string("SGX convolution delta after gradient on activation layer ") + std::to_string(net.index);
@@ -1294,25 +1301,18 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
     if(l.batch_normalize){
         // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
         // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates bn before");
-        std::string ff_time_id("8 conv backward first step BN");
-        ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
         l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
         backward_batchnorm_layer(l, net);
         // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
         // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
         l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-        ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
     } else {
-      std::string ff_time_id("8 conv backward first step BIAS");
-      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
       auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
       // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates before");
       backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.n, k);
       // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
       l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
-      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
     }
-    ocall_set_timing(f_time_id.c_str(), f_time_id.size()+1, 0, 1);
 
     auto net_workspace = l.size != 1 ? std::unique_ptr<float[]>(
                          new float[l.enclave_layered_batch * l.out_h * l.out_w
@@ -1328,8 +1328,6 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
     } 
     for(i = 0; i < l.batch; ++i){
         for(j = 0; j < l.groups; ++j){
-          std::string time_id("8 conv backward weights delta");
-          ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
           float *a = &l_delta[0] + (i*l.groups + j)*m*k;
           float *b = nullptr;   //&net_workspace[0];
           float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
@@ -1356,10 +1354,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
               }
           }
           //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
-          ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
           if (net.delta != nullptr) {
-            std::string time_id("7 conv backward input delta");
-            ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
             // auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
             a = &l_weights[0] + j*l.nweights/l.groups;
             b = &l_delta[0] + (i*l.groups + j)*m*k;
@@ -1386,7 +1381,6 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
                 //gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
                 //col2im_cpu(&net_workspace[0], l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
             }
-            ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
           }
         }
     }
@@ -1397,6 +1391,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
       // print_array(&net_delta[0], l.batch*l.inputs, 0, "SGX after conv layer net delta");
       net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
     }
+    SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV)
     //LOG_DEBUG("after backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("after backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
 }
@@ -1404,8 +1399,6 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
 void convolutional_get_MM_weight_updates_left_compare(layer& l, network& net,float* l_weight_updates) {
   std::vector<float> rand_left(l.n/l.groups,0);
   //auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
-  std::string time_id("8 conv backward weights delta comparison");
-  ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
   gemm(0,0,l.n/l.groups,1,(l.size*l.size*l.c/l.groups),1,
     l_weight_updates,(l.size*l.size*l.c/l.groups),
     l.bkwrd_weight_delta_rand,1,
@@ -1419,7 +1412,6 @@ void convolutional_get_MM_weight_updates_left_compare(layer& l, network& net,flo
       abort();
     }
   }
-  ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
 }
 
 void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,float* rand_vec,
@@ -1438,8 +1430,6 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,f
     // LOG_DEBUG("prev delta conv layer %d,iter=%d,subdiv=%d,net_batch=%d,net_enclavesubdiv=%d\nbatch=%d,q=%d,r=%d,l.size=%d\n",
     //   layer_index,iter,subdiv,net.batch,net.enclave_subdivisions,batch_num,q,r,l.size)
   // }
-  std::string time_id("8 conv backward input delta comparison");
-  ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
   if (l.size == 1) {
     OCALL_LOAD_LAYER_REPRT_FRBMMV(iter, layer_index,
             0,nullptr,0,nullptr,0,
@@ -1508,15 +1498,13 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,f
       abort();
     }
   }
-  ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
 }
 
 void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv layer index=%d\n",net.index)
   // LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
   //LOG_DEBUG("before backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
-  std::string f_time_id("8 conv backward first step");
-  ocall_set_timing(f_time_id.c_str(), f_time_id.size()+1, 1, 0);
+  SET_START_TIMING(SGX_TIMING_BACKWARD_CONV)
   int i, j;
   int m = l.n/l.groups;
   int n = l.size*l.size*l.c/l.groups;
@@ -1529,11 +1517,8 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   int r = (l.c/l.groups) % l.enclave_layered_batch;
 
   {
-    std::string ff_time_id("8 conv backward first step apply grad activation");
-    ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
-    ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
   }
   // if (net.index == 7) {
   //   std::string text = std::string("SGX convolution delta after gradient on activation layer ") + std::to_string(net.index);
@@ -1542,25 +1527,18 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   if(l.batch_normalize){
       // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
       // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates bn before");
-      std::string ff_time_id("8 conv backward first step BN");
-      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
       l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
       backward_batchnorm_layer(l, net);
       // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
       // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
       l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-      ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
   } else {
-    std::string ff_time_id("8 conv backward first step BIAS");
-    ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 1, 0);
     auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
     // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates before");
     backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.n, k);
     // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
     l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
-    ocall_set_timing(ff_time_id.c_str(), ff_time_id.size()+1, 0, 1);
   }
-  ocall_set_timing(f_time_id.c_str(), f_time_id.size()+1, 0, 1);
   std::vector<float> mm_randomized_output_right(l.n/l.groups,0);
   std::vector<float> mm_randomized_mid_right(l.out_w*l.out_h,0);
   // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv passed 1st point layer index=%d\n",net.index)
@@ -1584,8 +1562,6 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   // perform weight_updates rand mult
   for(i = 0; i < l.batch; ++i){
     for(j = 0; j < l.groups; ++j){
-      std::string time_id("8 conv backward weights delta");
-      ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
       // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv wu mult layer index=%d\n",net.index)
       float *a = &l_delta[0] + (i*l.groups + j)*m*k;
       float *b = nullptr;   //&net_workspace[0];
@@ -1638,11 +1614,8 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
       for (int ss=0;ss<mm_randomized_output_right.size();++ss) {
         l.bkwrd_weight_delta_rhs[ss] += mm_randomized_output_right[ss];
       }
-      ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
       // prev delta
       if (net.delta != nullptr) {
-        std::string time_id("7 conv backward input delta");
-        ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
         // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv net_delta section layer index=%d\n",net.index)
         std::vector<float> net_delta_mm_randomized_output_right(l.out_w*l.out_h,0);
         //a = &l_weights[0] + j*l.nweights/l.groups;
@@ -1662,7 +1635,6 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
                                                 net_delta_mm_randomized_output_right.data(),imd,net_workspace.get(),
                                                 iter,
                                                 subdiv, i);
-        ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
       }
     }
   }
@@ -1674,6 +1646,7 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
     auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
     convolutional_get_MM_weight_updates_left_compare(l, net,l_weight_updates.get());
   }
+  SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV)
 }
 
 void update_convolutional_layer(convolutional_layer& l, update_args a)

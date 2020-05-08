@@ -226,20 +226,7 @@ void forward_network(network *netp)
             }
             #endif
         }
-        #if defined(USE_SGX) && defined (USE_SGX_LAYERWISE)
-        std::string time_id;
-        if (l.type == CONNECTED) {
-            time_id = "5 connected forward";
-        }
-        else if (l.type == CONVOLUTIONAL) {
-            time_id = "5 conv forward";
-        }
-        ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
-        #endif
         l.forward(l, net);
-        #if defined(USE_SGX) && defined (USE_SGX_LAYERWISE)
-        ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
-        #endif
         net.input = l.output;
         if(l.truth) {
             net.truth = l.output;
@@ -332,20 +319,7 @@ void backward_network(network *netp)
             net.delta = prev.delta;
         }
         net.index = i;
-        #if defined(USE_SGX) && defined (USE_SGX_LAYERWISE)
-        std::string time_id;
-        if (l.type == CONNECTED) {
-            time_id = "6 connected backward";
-        }
-        else if (l.type == CONVOLUTIONAL) {
-            time_id = "6 conv backward";
-        }
-        ocall_set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
-        #endif
         l.backward(l, net);
-        #if defined(USE_SGX) && defined (USE_SGX_LAYERWISE)
-        ocall_set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
-        #endif
     }
 }
 

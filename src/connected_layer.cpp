@@ -764,6 +764,7 @@ void forward_connected_layer(layer& l, network& net)
         forward_connected_layer_verifies_frbmmv(l,net);
         return;
     }
+    SET_START_TIMING(SGX_TIMING_FORWARD_CONNCTD)
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
     fill_cpu(l.outputs*l.batch, 0, &l_output[0], 1);
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
@@ -805,10 +806,16 @@ void forward_connected_layer(layer& l, network& net)
     // print_array(&l_output[0],100,0,"SGX connected forward input before bias or batchnorm");
     activate_array(&l_output[0], l.outputs*l.batch, l.activation);
     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+    SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONNCTD)
 }
 
 void backward_connected_layer(layer& l, network& net)
 {
+    if (net.sgx_net_rmm_verifies) {
+        backward_connected_layer_verifies_frbmmv(l,net);
+        return;
+    }
+    SET_START_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
     auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
     // if (net.index == 13) {
     //     print_array(&l_delta[0], l.outputs*l.batch/10, 0, "before connected layer delta");
@@ -830,12 +837,6 @@ void backward_connected_layer(layer& l, network& net)
         backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.outputs, 1);
         // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
         l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
-    }
-
-    if (net.sgx_net_rmm_verifies) {
-        l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
-        backward_connected_layer_verifies_frbmmv(l,net);
-        return;
     }
 
     int q = l.outputs / l.enclave_layered_batch;
@@ -890,6 +891,7 @@ void backward_connected_layer(layer& l, network& net)
         // print_array(&net_delta[0], l.batch*l.inputs, 0, "SGX after connected layer net delta");
         net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
     }
+    SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
 }
 
 void connected_get_MM_output_left_compare(layer& l, network& net,float* rand_vec,float* rand_right,
@@ -914,6 +916,7 @@ float* l_output) {
 }
 
 void forward_connected_layer_verifies_frbmmv(layer& l, network& net) {
+    SET_START_TIMING(SGX_TIMING_FORWARD_CONNCTD)
     std::vector<float> mm_randomized_output_right(l.batch,0);
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
@@ -942,6 +945,7 @@ void forward_connected_layer_verifies_frbmmv(layer& l, network& net) {
     // print_array(&l_output[0],100,0,"SGX connected forward input after bias or batchnorm");
     activate_array(&l_output[0], l.outputs*l.batch, l.activation);
     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+    SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONNCTD)
 }
 
 void connected_get_MM_weight_updates_left_compare(layer& l, network& net) {
@@ -995,6 +999,29 @@ void connected_get_MM_output_prevdelta_left_compare(layer& l, network& net,float
 }
 
 void backward_connected_layer_verifies_frbmmv(layer& l, network& net) {
+    SET_START_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
+    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    // if (net.index == 13) {
+    //     print_array(&l_delta[0], l.outputs*l.batch/10, 0, "before connected layer delta");
+    // }
+    {
+        auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+        gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+    }
+    // print_array(&l_delta[0], l.outputs*l.batch/10, 0, "after connected layer delta");
+
+    if(l.batch_normalize){
+        l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+        backward_batchnorm_layer(l, net);
+        // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+        // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
+        l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    } else {
+        auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+        backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.outputs, 1);
+        // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
+        l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    }
     std::vector<float> mm_randomized_output_right(l.outputs,0);
     std::vector<float> mm_randomized_mid_right(l.batch,0);
     {
@@ -1005,7 +1032,7 @@ void backward_connected_layer_verifies_frbmmv(layer& l, network& net) {
         1,
         mm_randomized_mid_right.data(),1);
     }
-    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    //auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
     {
         gemm(1,0,l.outputs,1,l.batch,1,
         l_delta.get(),l.outputs,
@@ -1031,6 +1058,7 @@ void backward_connected_layer_verifies_frbmmv(layer& l, network& net) {
         connected_get_MM_output_prevdelta_left_compare(l, 
             net,l.bkwrd_input_delta_rand, mm_randomized_output_right.data());
     }
+    SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
 }
 
 #endif

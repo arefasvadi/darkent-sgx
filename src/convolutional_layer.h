@@ -10,6 +10,10 @@
 typedef layer convolutional_layer;
 
 #ifdef GPU
+void set_timing(const char *time_id,
+                 size_t      len,
+                 int         is_it_first_call,
+                 int         is_it_last_call);
 void forward_convolutional_layer_gpu(convolutional_layer layer, network net);
 void backward_convolutional_layer_gpu(convolutional_layer layer, network net);
 void update_convolutional_layer_gpu(convolutional_layer layer, update_args a);
