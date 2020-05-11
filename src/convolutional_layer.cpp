@@ -7,6 +7,9 @@
 #include "gemm.h"
 #include <stdio.h>
 #include <time.h>
+#ifdef USE_SGX
+#include "prepare-dnnl.h"
+#endif
 
 #ifdef AI2
 #include "xnor_layer.h"
@@ -736,11 +739,11 @@ void forward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net) 
     
     auto& layer_report = net_report.net_layers_reports[net.index];
     auto curr_out_size = layer_report.layer_forward_MM_outputs.size();
-    std::string time_id("9991 GPU conv forward outs");
-    set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
+    //std::string time_id("9991 GPU conv forward outs");
+    //set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
     layer_report.layer_forward_MM_outputs.resize(curr_out_size+(l.outputs*l.batch*sizeof(float)));
     cuda_pull_array(l.output_gpu, (float*)(layer_report.layer_forward_MM_outputs.data()+curr_out_size),l.outputs*l.batch);
-    set_timing(time_id.c_str(), time_id.size()+1, 0, 0);
+    //set_timing(time_id.c_str(), time_id.size()+1, 0, 0);
 
     if (l.batch_normalize) {
         forward_batchnorm_layer_gpu(l, net);
@@ -813,13 +816,10 @@ void backward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net)
 
                 gemm_gpu(1,0,n,k,m,1,a,n,b,k,0,c,k);
                 // store the output of MM
-                std::string time_id("9990 GPU Dispatch backward conv delta");
-                set_timing(time_id.c_str(), time_id.size()+1, 1, 0);
                 auto curr_out_size = layer_report.layer_backward_MM_prev_delta.size();
                 layer_report.layer_backward_MM_prev_delta.resize(curr_out_size+(l.size*l.size*l.c*l.out_h*l.out_w*sizeof(float)));
                 cuda_pull_array(c, (float*)(layer_report.layer_backward_MM_prev_delta.data()+curr_out_size),
                   (l.size*l.size*l.c*l.out_h*l.out_w));
-                set_timing(time_id.c_str(), time_id.size()+1, 0, 1);
 
                 if (l.size != 1) {
                     col2im_gpu(net.workspace, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
@@ -1113,6 +1113,10 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   int m = l.n/l.groups;
   int k = l.size*l.size*l.c/l.groups;
   int n = l.out_w*l.out_h;
+
+  #ifndef SGX_CONV_BATCH_PRECOMPUTE_VERIFY
+  auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+  #endif
   
   auto n_workspace = l.size != 1 ? std::unique_ptr<float[]>(
                          new float[l.enclave_layered_batch * l.out_h * l.out_w
@@ -1121,6 +1125,17 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   std::vector<float> mm_randomized_output_right(n,0);
   for(i = 0; i < l.batch; ++i){
     for(j = 0; j < l.groups; ++j){
+      #ifndef SGX_CONV_BATCH_PRECOMPUTE_VERIFY
+      for (int jj=0;jj<l.n/l.groups;++jj){
+        l.frwd_outs_rand[jj] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
+                    std::numeric_limits<float>::max());
+      }
+      std::memset(l.frwd_outs_rhs, 0, l.c/l.groups*l.size*l.size*sizeof(float));
+      gemm(0,0,
+        1,l.c/l.groups*l.size*l.size,l.n/l.groups,1,
+        l.frwd_outs_rand,l.n/l.groups,l_weights.get(),l.c/l.groups*l.size*l.size,1,
+        l.frwd_outs_rhs,l.c/l.groups*l.size*l.size);
+      #endif
       std::memset(mm_randomized_output_right.data(), 0, 
         mm_randomized_output_right.size()*sizeof(float));
       //float *a = &l_weights[0] + j * l.nweights / l.groups;
@@ -1128,14 +1143,21 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
       float *c = &l_output[0] + (i * l.groups + j) * n * m;
       float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
       if (l.size == 1) {
+        SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
         b = im;
+        #ifndef SGX_USE_BLASFEO_GEMV
         gemm(0,0,1,n,k,1,
         l.frwd_outs_rhs,k,
         b,n,
         1,
         mm_randomized_output_right.data(),n);
+        #else
+        //blasfeo_gemv_impl(0, k, n, 1.0, b, n, l.frwd_outs_rhs, 1, 1.0, mm_randomized_output_right.data(), 1);
+        #endif
+        SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
       }
       else {
+        SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KGT_1)
         for (int chan = 0; chan < q; chan++) {
           std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
           b = &n_workspace[0];
@@ -1160,6 +1182,7 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
       }
       convolutional_get_MM_output_left_compare(l, net,l.frwd_outs_rand, 
         mm_randomized_output_right.data(),c);
+      SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KGT_1)
     }
   }
   //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
@@ -1230,9 +1253,12 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
       float *c = &l_output[0] + (i * l.groups + j) * n * m;
       float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
       if (l.size == 1) {
+          SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
           b = im;
           gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
+          SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
       } else {
+          SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KGT_1)
           for (int chan = 0; chan < q; chan++) {
             std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
             b = &n_workspace[0];
@@ -1246,6 +1272,7 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
             im2col_cpu(im+(q*l.enclave_layered_batch*l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
             gemm(0, 0, m, n, (r*l.size*l.size), 1, a+(q*l.enclave_layered_batch*l.size*l.size), k, b, n, 1, c, n);  // k is changed
           }
+          SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KGT_1)
           //LOG_DEBUG("Base start index for C (output) is %d",(i * l.groups + j) * n * m)
           //gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
       }
@@ -1334,10 +1361,13 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
           float *im  = &net_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
 
           if(l.size == 1){
+            SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KEQ_1)
             b = im;
             gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+            SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KEQ_1)
           } 
           else {
+              SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KGT_1)
               for (int chan = 0; chan < q;++chan) {
                 std::memset(&net_workspace[0], 0, sizeof(float)*l.enclave_layered_batch * l.out_h * l.out_w* l.size * l.size);
                 b = &net_workspace[0];
@@ -1352,6 +1382,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
                 im2col_cpu(im+q*l.enclave_layered_batch*(l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
                 gemm(0,1,m,(r*l.size*l.size),k,1,a,k,b,k,1,c+(q*l.enclave_layered_batch*l.size*l.size),n);
               }
+              SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KGT_1)
           }
           //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
           if (net.delta != nullptr) {
@@ -1361,10 +1392,13 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
             float *imd = &net_delta[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
             c = nullptr;  // &net_workspace[0];
             if (l.size == 1) {
+                SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_INGRAD_KEQ_1)
                 c = imd;
                 gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
+                SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_INGRAD_KEQ_1)
             }
             else {
+                SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_INGRAD_KGT_1)
                 for (int chan=0;chan < q;chan++) {
                   std::memset(&net_workspace[0], 0, sizeof(float)*l.enclave_layered_batch * l.out_h * l.out_w* l.size * l.size);
                   c = &net_workspace[0];
@@ -1378,6 +1412,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
                   gemm(1,0,r*l.size*l.size,k,m,1,a+(q*l.enclave_layered_batch*l.size*l.size),n,b,k,0,c,k);
                   col2im_cpu(c, r, l.h, l.w, l.size, l.stride, l.pad, imd+(q*l.enclave_layered_batch*l.h*l.w));
                 }
+                SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_INGRAD_KGT_1)
                 //gemm(1,0,n,k,m,1,a,n,b,k,0,c,k);
                 //col2im_cpu(&net_workspace[0], l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
             }
@@ -1512,7 +1547,9 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   
   auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
   auto net_delta  = net.delta ? net.delta->getItemsInRange(0, net.delta->getBufferSize()):std::unique_ptr<float[]>(nullptr);
-
+  #ifndef SGX_CONV_BATCH_PRECOMPUTE_VERIFY
+  auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+  #endif
   int q = (l.c/l.groups) / l.enclave_layered_batch;
   int r = (l.c/l.groups) % l.enclave_layered_batch;
 
@@ -1571,6 +1608,7 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
       std::memset(mm_randomized_mid_right.data(),0,mm_randomized_mid_right.size()*sizeof(float));
       std::memset(mm_randomized_output_right.data(),0,mm_randomized_output_right.size()*sizeof(float));
       if (l.size == 1) {
+        SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KEQ_1)
         b = im;
         gemm(1,0,(l.out_w*l.out_h),1,l.size*l.size*l.c/l.groups,1,
           b,(l.out_w*l.out_h),
@@ -1578,8 +1616,21 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
           1,
           mm_randomized_mid_right.data(),1
         );
+        // multiply with delta
+        gemm(0,0,l.n/l.groups,1,(l.out_w*l.out_h),1,
+          a,(l.out_w*l.out_h),
+          mm_randomized_mid_right.data(),1,
+          1,
+          mm_randomized_output_right.data(),1
+        );
+        // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv sum for wu mult layer index=%d\n",net.index)
+        for (int ss=0;ss<mm_randomized_output_right.size();++ss) {
+          l.bkwrd_weight_delta_rhs[ss] += mm_randomized_output_right[ss];
+        }
+        SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KEQ_1)
       }
       else {
+        SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KGT_1)
         for (int chan = 0; chan < q;++chan) {
           std::memset(&net_workspace[0], 0, sizeof(float)*l.enclave_layered_batch * l.out_h * l.out_w* l.size * l.size);
           b = &net_workspace[0];
@@ -1602,21 +1653,40 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
             mm_randomized_mid_right.data(),1
           );
         }
-      }
-      // multiply with delta
-      gemm(0,0,l.n/l.groups,1,(l.out_w*l.out_h),1,
-        a,(l.out_w*l.out_h),
-        mm_randomized_mid_right.data(),1,
-        1,
-        mm_randomized_output_right.data(),1
-      );
-      // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv sum for wu mult layer index=%d\n",net.index)
-      for (int ss=0;ss<mm_randomized_output_right.size();++ss) {
-        l.bkwrd_weight_delta_rhs[ss] += mm_randomized_output_right[ss];
+        // multiply with delta
+        gemm(0,0,l.n/l.groups,1,(l.out_w*l.out_h),1,
+          a,(l.out_w*l.out_h),
+          mm_randomized_mid_right.data(),1,
+          1,
+          mm_randomized_output_right.data(),1
+        );
+        // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv sum for wu mult layer index=%d\n",net.index)
+        for (int ss=0;ss<mm_randomized_output_right.size();++ss) {
+          l.bkwrd_weight_delta_rhs[ss] += mm_randomized_output_right[ss];
+        }
+        SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KGT_1)
       }
       // prev delta
       if (net.delta != nullptr) {
+        if (l.size == 1) {
+          SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_INGRAD_KEQ_1)
+        }
+        else {
+          SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_INGRAD_KGT_1)
+        }
         // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv net_delta section layer index=%d\n",net.index)
+        #ifndef SGX_CONV_BATCH_PRECOMPUTE_VERIFY
+        for (int jj=0;jj<l.c/l.groups*l.size*l.size;++jj){
+          l.bkwrd_input_delta_rand[jj] = sgx_root_rng->getRandomFloat(std::numeric_limits<float>::min(),
+                      std::numeric_limits<float>::max());
+        }
+        std::memset(l.bkwrd_input_delta_rhs, 0, l.n/l.groups*sizeof(float));
+        gemm(0,1,1,l.n/l.groups,l.c/l.groups*l.size*l.size,1,
+          l.bkwrd_input_delta_rand,l.c/l.groups*l.size*l.size,
+          l_weights.get(),l.c/l.groups*l.size*l.size,
+          1,
+          l.bkwrd_input_delta_rhs,l.n/l.groups);
+        #endif
         std::vector<float> net_delta_mm_randomized_output_right(l.out_w*l.out_h,0);
         //a = &l_weights[0] + j*l.nweights/l.groups;
         b = &l_delta[0] + (i*l.groups + j)*m*k;
@@ -1635,6 +1705,12 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
                                                 net_delta_mm_randomized_output_right.data(),imd,net_workspace.get(),
                                                 iter,
                                                 subdiv, i);
+        if (l.size == 1) {
+          SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_INGRAD_KEQ_1)
+        }
+        else {
+          SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_INGRAD_KGT_1)
+        }
       }
     }
   }
@@ -1643,8 +1719,20 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   }
   // check if last backward for this SGD step considering l.batch and l.enclave_subdiv
   if(((*net.seen)/net.batch)%net.enclave_subdivisions == 0) {
+    if (l.size == 1) {
+      SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KEQ_1)
+    }
+    else {
+      SET_START_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KGT_1)
+    }
     auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
     convolutional_get_MM_weight_updates_left_compare(l, net,l_weight_updates.get());
+    if (l.size == 1) {
+      SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KEQ_1)
+    }
+    else {
+      SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV_WGRAD_KGT_1)
+    }
   }
   SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV)
 }

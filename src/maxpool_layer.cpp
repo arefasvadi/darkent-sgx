@@ -223,6 +223,7 @@ maxpool_layer make_maxpool_layer(int batch, int h, int w, int c, int size, int s
 
 void forward_maxpool_layer(maxpool_layer& l, network& net)
 {
+    SET_START_TIMING(SGX_TIMING_FORWARD_MAXP)
     // TODO: Should be data oblivious
     int b,i,j,k,m,n;
     int w_offset = -l.pad/2;
@@ -267,10 +268,12 @@ void forward_maxpool_layer(maxpool_layer& l, network& net)
     }
     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
     l.indexes->setItemsInRange(0, l.indexes->getBufferSize(),l_indexes);
+    SET_FINISH_TIMING(SGX_TIMING_FORWARD_MAXP)
 }
 
 void backward_maxpool_layer(maxpool_layer& l, network& net)
 {
+    SET_START_TIMING(SGX_TIMING_BACKWARD_MAXP)
     int i;
     int h = l.out_h;
     int w = l.out_w;
@@ -288,6 +291,7 @@ void backward_maxpool_layer(maxpool_layer& l, network& net)
         net_delta[index] += l_delta[i];
     }
     net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
+    SET_FINISH_TIMING(SGX_TIMING_BACKWARD_MAXP)
 }
 #endif
 
