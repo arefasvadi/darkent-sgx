@@ -815,15 +815,23 @@ void backward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net)
                 }
 
                 gemm_gpu(1,0,n,k,m,1,a,n,b,k,0,c,k);
+                #ifdef CONV_BACKWRD_INPUT_GRAD_COPY_BEFORE_COL2IM
                 // store the output of MM
                 auto curr_out_size = layer_report.layer_backward_MM_prev_delta.size();
                 layer_report.layer_backward_MM_prev_delta.resize(curr_out_size+(l.size*l.size*l.c*l.out_h*l.out_w*sizeof(float)));
                 cuda_pull_array(c, (float*)(layer_report.layer_backward_MM_prev_delta.data()+curr_out_size),
                   (l.size*l.size*l.c*l.out_h*l.out_w));
-
+                #endif
                 if (l.size != 1) {
                     col2im_gpu(net.workspace, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
                 }
+                #ifdef CONV_BACKWRD_INPUT_GRAD_COPY_AFTER_COL2IM
+                auto curr_out_size = layer_report.layer_backward_MM_prev_delta.size();
+                // (l.batch * l.inputs *sizeof(float))
+                layer_report.layer_backward_MM_prev_delta.resize(curr_out_size+(l.inputs*sizeof(float)));
+                cuda_pull_array(imd, (float*)(layer_report.layer_backward_MM_prev_delta.data()+curr_out_size),
+                  (l.inputs));
+                #endif
                 if(l.binary || l.xnor) {
                     swap_binary(&l);
                 }
@@ -831,7 +839,6 @@ void backward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net)
             // if(l.xnor) gradient_array_gpu(original_input + i*l.c*l.h*l.w, l.c*l.h*l.w, HARDTAN, net.delta_gpu + i*l.c*l.h*l.w);
         }
     }
-
 }
 
 void
@@ -1074,7 +1081,9 @@ void convolutional_get_MM_output_left_compare(layer& l, network& net,float* rand
   int k = l.size * l.size * l.c / l.groups;
   int n = l.out_w * l.out_h;
   std::vector<float> rand_left(n,0);
-  gemm(0,0,1,n,m,1,
+  gemm
+  //primitive_based_sgemv
+  (0,0,1,n,m,1,
   rand_vec,m,
   result_out,n,
   1,
@@ -1085,7 +1094,7 @@ void convolutional_get_MM_output_left_compare(layer& l, network& net,float* rand
   //      abort();
   //}
   for (int i=0;i<rand_left.size();++i) {
-      if (std::fabs(rand_right[i]-rand_left[i]) > 0.000001f) {
+      if (std::isnormal(rand_left[i]) && std::isnormal(rand_right[i]) && std::fabs(rand_right[i]-rand_left[i]) > 0.000001f) {
           LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
               i,rand_right[i],rand_left[i])
           abort();
@@ -1146,7 +1155,9 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
         SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
         b = im;
         #ifndef SGX_USE_BLASFEO_GEMV
-        gemm(0,0,1,n,k,1,
+        gemm
+        //primitive_based_sgemv
+        (0,0,1,n,k,1,
         l.frwd_outs_rhs,k,
         b,n,
         1,
@@ -1162,7 +1173,9 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
           std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
           b = &n_workspace[0];
           im2col_cpu(im+(chan*l.enclave_layered_batch*l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
-          gemm(0,0,1,n,l.size*l.size*l.enclave_layered_batch/l.groups,1,
+          gemm
+          //primitive_based_sgemv
+          (0,0,1,n,l.size*l.size*l.enclave_layered_batch/l.groups,1,
           l.frwd_outs_rhs+(chan*l.size*l.size*l.enclave_layered_batch/l.groups),l.size*l.size*l.enclave_layered_batch/l.groups,
           b,n,
           1,
@@ -1173,7 +1186,9 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
             sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
           b = &n_workspace[0];
           im2col_cpu(im+(q*l.enclave_layered_batch*l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
-          gemm(0,0,1,n,l.size*l.size*r/l.groups,1,
+          gemm
+          //primitive_based_sgemv
+          (0,0,1,n,l.size*l.size*r/l.groups,1,
           l.frwd_outs_rhs+(q*l.size*l.size*l.enclave_layered_batch),l.size*l.size*r/l.groups,
           b,n,
           1,
@@ -1465,6 +1480,42 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,f
     // LOG_DEBUG("prev delta conv layer %d,iter=%d,subdiv=%d,net_batch=%d,net_enclavesubdiv=%d\nbatch=%d,q=%d,r=%d,l.size=%d\n",
     //   layer_index,iter,subdiv,net.batch,net.enclave_subdivisions,batch_num,q,r,l.size)
   // }
+  #if defined(CONV_BACKWRD_INPUT_GRAD_COPY_AFTER_COL2IM)
+  if (l.size == 1) {
+    gemm(0,0,1,(l.out_w*l.out_h),l.c/l.groups,1,
+      rand_vec,l.c/l.groups,
+      imd,(l.out_w*l.out_h),
+      1,
+      rand_left.data(),(l.out_w*l.out_h)
+    );
+  }
+  else {
+    for (int chan = 0; chan < q;++chan) {
+      std::memset(net_workspace, 0,l.enclave_layered_batch * l.out_h * l.out_w
+                                   * l.size * l.size*sizeof(float));
+      im2col_cpu(imd+(chan*l.enclave_layered_batch*l.h*l.w), 
+        l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, net_workspace);
+      gemm(0,0,1,(l.out_w*l.out_h),(l.size*l.size*l.enclave_layered_batch),1,
+        rand_vec+chan*(l.size*l.size*l.enclave_layered_batch),(l.size*l.size*l.enclave_layered_batch),
+        net_workspace,(l.out_w*l.out_h),
+        1,
+        rand_left.data(),(l.out_w*l.out_h)
+      );
+    }
+    if (r > 0) {
+      std::memset(net_workspace, 0,l.enclave_layered_batch * l.out_h * l.out_w
+                                   * l.size * l.size*sizeof(float));
+      im2col_cpu(imd+(q*l.enclave_layered_batch*l.h*l.w), 
+        r, l.h, l.w, l.size, l.stride, l.pad, net_workspace);
+      gemm(0,0,1,(l.out_w*l.out_h),(l.size*l.size*r),1,
+        rand_vec+q*(l.size*l.size*l.enclave_layered_batch),(l.size*l.size*r),
+        net_workspace,(l.out_w*l.out_h),
+        1,
+        rand_left.data(),(l.out_w*l.out_h)
+      );
+    }
+  }
+  #elif defined(CONV_BACKWRD_INPUT_GRAD_COPY_BEFORE_COL2IM)
   if (l.size == 1) {
     OCALL_LOAD_LAYER_REPRT_FRBMMV(iter, layer_index,
             0,nullptr,0,nullptr,0,
@@ -1519,7 +1570,7 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,f
       start_prevdelta += (r*l.size*l.size*l.out_w*l.out_h)*sizeof(float);
     }
   }
-  
+  #endif
   // iteration, layer_index, subdiv,batch
   // TODO check the validity of report
   // if (rand_right.size()!=rand_left.size()) {
@@ -1527,6 +1578,7 @@ void convolutional_get_MM_output_prevdelta_left_compare(layer& l, network& net,f
   //  abort();
   // }
   for (int i=0;i<rand_left.size();++i) {
+    //LOG_OUT("diff between rand right and rand left %f\n",std::fabs(std::fabs(rand_right[i]-rand_left[i])));
     if (std::fabs(rand_right[i]-rand_left[i]) > 0.00001f) {
       LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
           i,rand_left[i],rand_right[i])

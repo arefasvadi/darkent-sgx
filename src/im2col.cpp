@@ -1,5 +1,6 @@
 #include "im2col.h"
 #include <stdio.h>
+
 float im2col_get_pixel(float *im, int height, int width, int channels,
                         int row, int col, int channel, int pad)
 {
@@ -28,6 +29,9 @@ void im2col_cpu(float* data_im,
      int channels,  int height,  int width,
      int ksize,  int stride, int pad, float* data_col) 
 {
+    #ifdef USE_SGX
+    SET_START_TIMING(SGX_TIMING_CONV_IM2COL);
+    #endif
     int c,h,w;
     int height_col = (height + 2*pad - ksize) / stride + 1;
     int width_col = (width + 2*pad - ksize) / stride + 1;
@@ -47,12 +51,18 @@ void im2col_cpu(float* data_im,
             }
         }
     }
+    #ifdef USE_SGX
+    SET_FINISH_TIMING(SGX_TIMING_CONV_IM2COL);
+    #endif
 }
 
 void im2col_cpu1D(float* data_im,
      int channels,  int height,  int width,
      int ksize,  int stride, int pad, float* data_col) 
 {
+    #ifdef USE_SGX
+    
+    #endif
     int c,h,w;
     int height_col = 1;
     int width_col = (width + 2*pad - ksize) / stride + 1;

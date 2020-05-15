@@ -30,6 +30,9 @@ void col2im_cpu(float* data_col,
          int channels,  int height,  int width,
          int ksize,  int stride, int pad, float* data_im) 
 {
+    #ifdef USE_SGX
+    SET_START_TIMING(SGX_TIMING_CONV_COL2IM);
+    #endif
     int c,h,w;
     int height_col = (height + 2*pad - ksize) / stride + 1;
     int width_col = (width + 2*pad - ksize) / stride + 1;
@@ -50,6 +53,9 @@ void col2im_cpu(float* data_col,
             }
         }
     }
+    #ifdef USE_SGX
+    SET_FINISH_TIMING(SGX_TIMING_CONV_COL2IM);
+    #endif
 }
 
 void col2im_cpu1D(float* data_col,

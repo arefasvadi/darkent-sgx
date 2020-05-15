@@ -107,6 +107,7 @@ float activate(float x, ACTIVATION a)
 void activate_array(float *x, const int n, const ACTIVATION a)
 {
     int i;
+    #pragma omp parallel for
     for(i = 0; i < n; ++i){
         x[i] = activate(x[i], a);
     }
@@ -150,6 +151,7 @@ float gradient(float x, ACTIVATION a)
 void gradient_array(const float *x, const int n, const ACTIVATION a, float *delta)
 {
     int i;
+    #pragma omp parallel for
     for(i = 0; i < n; ++i){
         delta[i] *= gradient(x[i], a);
     }
