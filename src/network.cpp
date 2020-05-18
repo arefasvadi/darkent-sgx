@@ -49,7 +49,7 @@ load_args get_base_args(network *net)
     args.hue = net->hue;
     return args;
 }
-
+#if !defined(USE_SGX_LAYERWISE)
 network *load_network(char *cfg, char *weights, int clear)
 {
   network *net = parse_network_cfg(cfg);
@@ -61,6 +61,8 @@ network *load_network(char *cfg, char *weights, int clear)
   if(clear) (*net->seen) = 0;
   return net;
 }
+#endif
+
 
 size_t get_current_batch(network *net)
 {

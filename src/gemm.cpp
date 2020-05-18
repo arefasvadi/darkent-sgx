@@ -192,10 +192,12 @@ void gemm(int TA, int TB, int M, int N, int K, float ALPHA,
         float *C, int ldc)
 {
     #if defined(USE_DNNL_GEMM) && defined(USE_SGX)
+    SET_START_TIMING(SGX_TIMING_GEMM);
     char transa = TA == 1 ? 'T':'N';
     char transb = TB == 1 ? 'T':'N';
     // dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
     primitive_based_sgemm(transa, transb, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
+    SET_FINISH_TIMING(SGX_TIMING_GEMM);
     #else
     gemm_cpu( TA,  TB,  M, N, K, ALPHA,A,lda, B, ldb,BETA,C,ldc);
     #endif

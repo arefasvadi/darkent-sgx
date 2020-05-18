@@ -18,6 +18,10 @@ void backward_dropout_layer_gpu(dropout_layer l, network net);
 
 #endif
 
+#if defined(USE_SGX) && defined(USE_SGX_LAYERWISE)
+    #include "sgxlwfit/sgxlwfit.h"
+#endif
+
 #if defined(SGX_VERIFIES) && defined(GPU)
     void forward_dropout_gpu_sgx_verifies_fbv     (dropout_layer l, network net);
     void backward_dropout_gpu_sgx_verifies_fbv    (dropout_layer l, network net);

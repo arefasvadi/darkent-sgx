@@ -128,60 +128,6 @@ void backward_dropout_layer(dropout_layer& l, network& net)
 }
 #endif
 
-#if defined(USE_SGX) && defined(USE_SGX_LAYERWISE)
-dropout_layer make_dropout_layer(int batch, int inputs, float probability,PRNG& net_layer_rng_deriver)
-{
-    dropout_layer l = {};
-    l.layer_rng = std::make_shared<PRNG>(generate_random_seed_from(net_layer_rng_deriver));
-    l.type = DROPOUT;
-    l.probability = probability;
-    l.inputs = inputs;
-    l.outputs = inputs;
-    l.batch = batch;
-    //l.rand = (float*)calloc(inputs*batch, sizeof(float));
-    l.rand = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*batch);
-    l.scale = 1./(1.-probability);
-    l.forward = forward_dropout_layer;
-    l.backward = backward_dropout_layer;
-    //fprintf(stderr, "dropout       p = %.2f               %4d  ->  %4d\n", probability, inputs, inputs);
-    return l;
-}
-
-void forward_dropout_layer(dropout_layer& l, network& net)
-{
-    int i;
-    if (!net.train) return;
-    auto l_rand = l.rand->getItemsInRange(0, l.rand->getBufferSize());
-    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
-    for(i = 0; i < l.batch * l.inputs; ++i){
-        // float r = rand_uniform(0, 1);
-        float r = rand_uniform(*(l.layer_rng),0, 1);
-        l_rand[i] = r;
-        if(r < l.probability) net_input[i] = 0;
-        else net_input[i] *= l.scale;
-    }
-    // if (net.index == 12) {
-    //     print_array(&l_rand[0],l.batch * l.inputs,0,"SGX dropout rand vals");
-    // }
-    l.rand->setItemsInRange(0, l.rand->getBufferSize(),l_rand);
-    net.input->setItemsInRange(0, net.input->getBufferSize(),net_input);
-}
-
-void backward_dropout_layer(dropout_layer& l, network& net)
-{
-    int i;
-    if(!net.delta) return;
-    auto l_rand = l.rand->getItemsInRange(0, l.rand->getBufferSize());
-    auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
-    for(i = 0; i < l.batch * l.inputs; ++i){
-        float r = l_rand[i];
-        if(r < l.probability) net_delta[i] = 0;
-        else net_delta[i] *= l.scale;
-    }
-    net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
-}
-#endif
-
 #if defined(USE_SGX) && defined(USE_SGX_BLOCKING)
 
 dropout_layer_blocked make_dropout_layer_blocked(int batch, int inputs, float probability) {

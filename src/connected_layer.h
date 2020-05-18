@@ -11,9 +11,7 @@ void forward_connected_layer(layer& l, network& net);
 void backward_connected_layer(layer& l, network& net);
 void update_connected_layer(layer& l, update_args a);
 #if defined(USE_SGX) && defined(USE_SGX_LAYERWISE)
-#include "global-vars-trusted.h"
-void forward_connected_layer_verifies_frbmmv(layer& l, network& net);
-void backward_connected_layer_verifies_frbmmv(layer& l, network& net);
+#include "sgxlwfit/sgxlwfit.h"
 #endif
 #if defined(SGX_VERIFIES) && defined(GPU)
     void forward_connected_gpu_sgx_verifies_     (struct layer, struct network);

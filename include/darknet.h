@@ -7,6 +7,8 @@
 #include "rand/PRNG.h"
 #ifndef USE_SGX
 #include <pthread.h>
+#else
+#include "Enclave-Types.h"
 #endif
 
 #define SECRET_NUM -1234
@@ -1236,7 +1238,8 @@ typedef struct network{
     std::shared_ptr<PRNG> iter_batch_rng;
     std::shared_ptr<PRNG> layer_rng_deriver;
     float gradient_clip;
-    int sgx_net_rmm_verifies;
+    net_context_variations net_context;
+    verf_variations_t verf_type;
 } network;
 
 #endif

@@ -43,10 +43,6 @@
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wwrite-strings"
-typedef struct{
-    char *type;
-    list *options;
-}section;
 
 list *read_cfg(char *filename);
 
@@ -137,16 +133,16 @@ void parse_data(char *data, float *a, int n)
 #else
 #endif
 
-typedef struct size_params{
-    int batch;
-    int inputs;
-    int h;
-    int w;
-    int c;
-    int index;
-    int time_steps;
-    network *net;
-} size_params;
+// typedef struct size_params{
+//     int batch;
+//     int inputs;
+//     int h;
+//     int w;
+//     int c;
+//     int index;
+//     int time_steps;
+//     network *net;
+// } size_params;
 
 #if defined(USE_SGX) && defined (USE_SGX_BLOCKING)
 typedef struct size_params_blocked{
@@ -908,7 +904,6 @@ int is_network(section *s)
 
 network *parse_network_cfg(char *filename)
 {
-
   LOG_TRACE("entered in parse network config\n");
     list *sections = read_cfg(filename);
     node *n = sections->front;
@@ -960,13 +955,7 @@ network *parse_network_cfg(char *filename)
         options = s->options;
         layer l = {};
         LAYER_TYPE lt = string_to_layer_type(s->type);
-// #if defined(USE_SGX) || defined(SGX_VERIFIES)
-//         std::array<uint64_t, 16> temp;
-//         for (int i = 0; i < 16; ++i) {
-//           temp[i] = net->layer_rng_deriver->getRandomUint64();
-//         }
-//         l.layer_rng = std::make_shared<PRNG>(temp);
-// #endif
+        
         if(lt == CONVOLUTIONAL){
             l = parse_convolutional(options, params,*(net->layer_rng_deriver));
         } else if(lt == CONVOLUTIONAL1D){
@@ -2050,7 +2039,7 @@ void load_connected_weights_encrypted(layer l, size_t *index, int transpose,uint
     CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
 
     size_t req_buffer_bytes = l.nweights*sizeof(float);
-    size_t interim_buff_bytes = 64 * ONE_KB;
+    size_t interim_buff_bytes = SGX_OCALL_TRANSFER_BLOCK_SIZE;
     int q = req_buffer_bytes / interim_buff_bytes;
     int r = req_buffer_bytes % interim_buff_bytes;
     for (int i=0;i<q;++i) {
@@ -2285,7 +2274,7 @@ void load_convolutional_weights_encrypted(layer l, size_t *index,
     CHECK_SGX_SUCCESS(ret, "aes decrypt caused problem\n");
   }
   size_t req_buffer_bytes = l.nweights*sizeof(float);
-  size_t interim_buff_bytes = 64 * ONE_KB;
+  size_t interim_buff_bytes = SGX_OCALL_TRANSFER_BLOCK_SIZE;
   int q = req_buffer_bytes / interim_buff_bytes;
   int r = req_buffer_bytes % interim_buff_bytes;
   //ret = ocall_load_weights_plain(*index,  (unsigned char*) &l.weights[i*buffer_size], sizeof(float)  

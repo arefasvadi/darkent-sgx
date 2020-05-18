@@ -39,9 +39,7 @@ void cudnn_convolutional_setup(layer *l);
 #endif
 
 #if defined(USE_SGX) && defined(USE_SGX_LAYERWISE)
-#include "global-vars-trusted.h"
-void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net);
-void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net);
+#include "sgxlwfit/sgxlwfit.h"
 #endif
 
 convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int n, int groups, int size, int stride, int padding, ACTIVATION activation, int batch_normalize, int binary, int xnor, int adam,PRNG& net_layer_rng_deriver);
@@ -57,6 +55,7 @@ void backward_convolutional_layer(convolutional_layer& layer, network& net);
 
 void add_bias(float *output, float *biases, int batch, int n, int size);
 void backward_bias(float *bias_updates, float *delta, int batch, int n, int size);
+size_t get_workspace_size(layer l);
 
 image get_convolutional_image(const convolutional_layer& layer);
 image get_convolutional_delta(const convolutional_layer& layer);
