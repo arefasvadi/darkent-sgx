@@ -1594,10 +1594,6 @@ void backward_maxpool_layer(maxpool_layer& l, network& net)
 
 layer make_batchnorm_layer(int batch, int w, int h, int c)
 {
-#ifndef USE_SGX
-  fprintf(stderr, "Batch Normalization Layer: %d x %d x %d image\n", w,h,c);
-#else
-#endif
     layer l = {};
     l.type = BATCHNORM;
     l.batch = batch;

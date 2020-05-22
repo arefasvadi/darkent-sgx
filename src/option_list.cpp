@@ -90,6 +90,8 @@ void option_unused(list *l)
     if(!p->used){
       #ifndef USE_SGX
       fprintf(stderr, "Unused field: '%s = %s'\n", p->key, p->val);
+      #else
+      LOG_WARN("Unused field: '%s = %s'\n", p->key, p->val)
       #endif
     }
     n = n->next;
@@ -116,6 +118,7 @@ char *option_find_str(list *l, char *key, char *def)
 #ifndef USE_SGX
     if(def) fprintf(stderr, "%s: Using default '%s'\n", key, def);
 #else
+    if(def) LOG_WARN("%s: Using default '%s'\n", key, def)
 #endif
     return def;
 }
@@ -127,6 +130,7 @@ int option_find_int(list *l, char *key, int def)
 #ifndef USE_SGX
     fprintf(stderr, "%s: Using default '%d'\n", key, def);
 #else
+    LOG_WARN("%s: Using default '%d'\n", key, def)
 #endif
     return def;
 }
@@ -152,6 +156,7 @@ float option_find_float(list *l, char *key, float def)
 #ifndef USE_SGX
     fprintf(stderr, "%s: Using default '%lf'\n", key, def);
 #else
+    LOG_WARN("%s: Using default '%lf'\n", key, def)
 #endif
     return def;
 }

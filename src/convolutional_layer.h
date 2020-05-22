@@ -40,6 +40,8 @@ void cudnn_convolutional_setup(layer *l);
 
 #if defined(USE_SGX) && defined(USE_SGX_LAYERWISE)
 #include "sgxlwfit/sgxlwfit.h"
+#elif defined(USE_SGX) && defined(USE_SGX_PURE)
+#include "sgxffit/sgxffit.h"
 #endif
 
 convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int n, int groups, int size, int stride, int padding, ACTIVATION activation, int batch_normalize, int binary, int xnor, int adam,PRNG& net_layer_rng_deriver);

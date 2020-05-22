@@ -65,9 +65,6 @@
 	layer parse_route(list *options, size_params params,network* net);
 	layer parse_shortcut(list *options, size_params params,network* net);
 
-
-	
-
 #else
 	#error "USE_SGX and USE_SGX_PURE Required"
 #endif

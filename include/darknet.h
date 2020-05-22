@@ -513,6 +513,10 @@ typedef struct network{
     std::shared_ptr<PRNG> iter_batch_rng;
     std::shared_ptr<PRNG> layer_rng_deriver;
     float gradient_clip;
+    #if defined(USE_SGX) && defined(USE_SGX_PURE)
+    net_context_variations net_context;
+    verf_variations_t verf_type;    
+    #endif
 
 #ifdef GPU
     float *input_gpu;
@@ -873,7 +877,7 @@ float rand_normal(PRNG&);
 float rand_uniform(PRNG&,float min, float max);
 
 #if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
-    struct layer{
+struct layer{
     LAYER_TYPE type;
     ACTIVATION activation;
     COST_TYPE cost_type;

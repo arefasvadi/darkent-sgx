@@ -902,6 +902,7 @@ int is_network(section *s)
             || strcmp(s->type, "[network]")==0);
 }
 
+#if !defined(USE_SGX_LAYERWISE) && !defined(USE_SGX_PURE)
 network *parse_network_cfg(char *filename)
 {
   LOG_TRACE("entered in parse network config\n");
@@ -1123,6 +1124,7 @@ network *parse_network_cfg(char *filename)
     LOG_TRACE("finished in parse network config\n");
     return net;
 }
+#endif
 
 #if !defined(USE_SGX) && !defined (SGX_VERIFIES)
 list *read_cfg(char *filename)

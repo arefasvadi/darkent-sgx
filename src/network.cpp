@@ -49,7 +49,7 @@ load_args get_base_args(network *net)
     args.hue = net->hue;
     return args;
 }
-#if !defined(USE_SGX_LAYERWISE)
+#if !defined(USE_SGX_LAYERWISE) && !defined(USE_SGX_PURE)
 network *load_network(char *cfg, char *weights, int clear)
 {
   network *net = parse_network_cfg(cfg);

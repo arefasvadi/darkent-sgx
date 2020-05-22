@@ -182,7 +182,7 @@ void cudnn_convolutional_setup(layer *l)
 #endif
 #endif
 
-#ifndef USE_SGX_LAYERWISE
+#if !defined(USE_SGX_LAYERWISE)
 convolutional_layer make_convolutional_layer(int batch, int h, int w, int c,
                                              int n, int groups, int size,
                                              int stride, int padding,
@@ -481,7 +481,7 @@ void backward_bias(float *bias_updates, float *delta, int batch, int n, int size
     }
 }
 
-#ifndef USE_SGX_LAYERWISE
+#if !defined(USE_SGX_LAYERWISE)
 void forward_convolutional_layer(convolutional_layer& l, network& net)
 {
   //LOG_DEBUG("before forward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
@@ -531,7 +531,7 @@ void forward_convolutional_layer(convolutional_layer& l, network& net)
 }
 #endif
 
-#ifndef USE_SGX_LAYERWISE
+#if !defined(USE_SGX_LAYERWISE)
 void backward_convolutional_layer(convolutional_layer& l, network& net)
 {
     //LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
@@ -591,7 +591,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net)
 }
 #endif
 
-#ifndef USE_SGX_LAYERWISE
+#if !defined(USE_SGX_LAYERWISE)
 void update_convolutional_layer(convolutional_layer& l, update_args a)
 {
     
