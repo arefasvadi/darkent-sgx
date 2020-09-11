@@ -215,8 +215,8 @@ void forward_network(network *netp)
     for(i = 0; i < net.n; ++i){
         net.index = i;
         layer l = net.layers[i];
-        // LOG_DEBUG("processing forward layer %d of %d with %d weights and %d biases of type %s\n",i+1,net.n,l.nweights,l.nbiases,
-        //         get_layer_string(l.type))
+        LOG_DEBUG("processing forward layer %d of %d with %d weights and %d biases of type %s\n",i+1,net.n,l.nweights,l.nbiases,
+                get_layer_string(l.type))
         if(l.delta){
             #ifndef USE_SGX_LAYERWISE
             fill_cpu(l.outputs * l.batch, 0, l.delta, 1);

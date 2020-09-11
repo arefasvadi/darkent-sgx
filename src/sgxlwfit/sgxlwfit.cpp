@@ -1189,10 +1189,13 @@ void forward_connected_layer(layer& l, network& net)
         forward_connected_layer_verifies_frbmmv(l,net);
         return;
     }
+    LOG_DEBUG("started lwfit forward connected\n")
     SET_START_TIMING(SGX_TIMING_FORWARD_CONNCTD)
     auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    LOG_DEBUG("lwfit forward output success connected\n")
     fill_cpu(l.outputs*l.batch, 0, &l_output[0], 1);
     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+    LOG_DEBUG("lwfit forward net input success connected\n")
     // print_array(&net_input[0],100,0,"SGX before connected forward input");
     int m = l.batch;
     int k = l.inputs;
@@ -1205,7 +1208,8 @@ void forward_connected_layer(layer& l, network& net)
         for (int i=0;i<q;++i) {
             float *c = &l_output[i*l.enclave_layered_batch];
             SET_START_TIMING("SGX Connected Forward loading weights")
-            auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs,(i+1)*l.enclave_layered_batch*l.inputs); 
+            auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs,(i+1)*l.enclave_layered_batch*l.inputs);
+            LOG_DEBUG("lwfit forward weights success connected\n")
             SET_FINISH_TIMING("SGX Connected Forward loading weights")
             // print_array(&l_weights[0],l.enclave_layered_batch*l.inputs,i*l.enclave_layered_batch*l.inputs,"SGX before connected forward weights");
             float *b = &l_weights[0];        
@@ -1214,7 +1218,8 @@ void forward_connected_layer(layer& l, network& net)
         if (r > 0) {
             float *c = &l_output[q*l.enclave_layered_batch];
             SET_START_TIMING("SGX Connected Forward loading weights")
-            auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*l.inputs,q*l.enclave_layered_batch*l.inputs+r*l.inputs); 
+            auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*l.inputs,q*l.enclave_layered_batch*l.inputs+r*l.inputs);
+            LOG_DEBUG("lwfit forward weights success connected\n")
             SET_FINISH_TIMING("SGX Connected Forward loading weights")
             // print_array(&l_weights[0],r*l.inputs,q*l.enclave_layered_batch*l.inputs,"SGX before connected forward weights");
             float *b = &l_weights[0];        
@@ -1222,7 +1227,7 @@ void forward_connected_layer(layer& l, network& net)
         }
         //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
     }
-    
+    LOG_DEBUG("finished lwfit multiplication of forward connected\n")
     // print_array(&l_output[0],100,0,"SGX connected forward input before bias or batchnorm");
     if(l.batch_normalize){
         l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
@@ -1236,6 +1241,7 @@ void forward_connected_layer(layer& l, network& net)
     activate_array(&l_output[0], l.outputs*l.batch, l.activation);
     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
     SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONNCTD)
+    LOG_DEBUG("finished lwfit forward connected\n")
 }
 
 void backward_connected_layer(layer& l, network& net)
