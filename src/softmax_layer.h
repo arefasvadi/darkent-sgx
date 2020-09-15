@@ -10,6 +10,10 @@ softmax_layer make_softmax_layer(int batch, int inputs, int groups);
 void forward_softmax_layer(softmax_layer& l, network& net);
 void backward_softmax_layer(softmax_layer& l, network& net);
 
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+    #include "sgxlwfit/sgxlwfit.h"
+#endif
+
 #ifdef GPU
 void pull_softmax_layer_output(const softmax_layer l);
 void forward_softmax_layer_gpu(const softmax_layer l, network net);

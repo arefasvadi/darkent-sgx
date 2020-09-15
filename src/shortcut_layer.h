@@ -9,6 +9,10 @@ void forward_shortcut_layer(layer& l, network& net);
 void backward_shortcut_layer(layer& l, network& net);
 void resize_shortcut_layer(layer *l, int w, int h);
 
+#if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
+#include "sgxlwfit/sgxlwfit.h"
+#endif
+
 #ifdef GPU
 void forward_shortcut_layer_gpu(const layer l, network net);
 void backward_shortcut_layer_gpu(const layer l, network net);

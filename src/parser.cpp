@@ -814,6 +814,11 @@ void parse_net_options(list *options, network *net)
     #if defined(SGX_VERIFIES)
     net->batch /= subdivs;
     #elif defined (USE_SGX)
+    // if (subdivs != enclave_subdivs) {
+    //   LOG_ERROR('subdivisons for gpu and enclave do not match\n');
+    //   // enclave_subdivs = subdivs;
+    //   //abort();
+    // }
     net->batch /= enclave_subdivs;
     #endif
     net->batch *= net->time_steps;

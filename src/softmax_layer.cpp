@@ -196,76 +196,7 @@ backward_softmax_gpu_sgx_verifies_fbv(softmax_layer l, network net) {
 #endif
 
 #if defined (USE_SGX) && defined (USE_SGX_LAYERWISE)
-softmax_layer make_softmax_layer(int batch, int inputs, int groups)
-{
-    assert(inputs%groups == 0);
-    fprintf(stderr, "softmax                                        %4d\n",  inputs);
-    softmax_layer l = {};
-    l.type = SOFTMAX;
-    l.batch = batch;
-    l.groups = groups;
-    l.inputs = inputs;
-    l.outputs = inputs;
-    //l.loss = (float*)calloc(inputs*batch, sizeof(float));
-    l.loss = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*batch);
-    //l.output = (float*)calloc(inputs*batch, sizeof(float));
-    l.output = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*batch);
-    //l.delta = (float*)calloc(inputs*batch, sizeof(float));
-    l.delta = sgx::trusted::SpecialBuffer<float>::GetNewSpecialBuffer(inputs*batch);
-    l.cost = (float*)calloc(1, sizeof(float));
 
-    l.forward = forward_softmax_layer;
-    l.backward = backward_softmax_layer;
-    return l;
-}
-
-void forward_softmax_layer(softmax_layer& l, network& net)
-{
-    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
-    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-    auto l_loss = l.loss->getItemsInRange(0, l.loss->getBufferSize());
-    if(l.softmax_tree){
-        auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
-        int i;
-        int count = 0;
-        for (i = 0; i < l.softmax_tree->groups; ++i) {
-            int group_size = l.softmax_tree->group_size[i];
-            softmax_cpu(&net_input[0] + count, group_size, l.batch, l.inputs, 1, 0, 1, l.temperature, &l_output[0] + count);
-            count += group_size;
-        }
-    } else {
-        auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
-        // print_array(&net_input[0],100,0,"SGX before softmax input");
-        softmax_cpu(&net_input[0], l.inputs/l.groups, l.batch, l.inputs, l.groups, l.inputs/l.groups, 1, l.temperature, &l_output[0]);
-    }
-
-    if(net.truth && !l.noloss){
-        auto net_truth = net.truth->getItemsInRange(0, net.truth->getBufferSize());
-        softmax_x_ent_cpu(l.batch*l.inputs, &l_output[0], &net_truth[0], &l_delta[0], &l_loss[0]);
-        l.cost[0] = sum_array(&l_loss[0], l.batch*l.inputs);
-    }
-    // print_array(&l_output[0], l.batch*l.outputs, 0, "SGX Softmax Vals");
-    // std::string temp_str = std::string("LAYERWISE Softmax Vals with batch size: ")+std::to_string(l.batch)+std::string("\n");
-    // for (int i=0;i<l.batch;++i) {
-    //     temp_str = temp_str + "batch " + std::to_string(i) + " ->: ";
-    //     for (int j=0;j<l.outputs;++j) {
-    //         temp_str = temp_str + std::to_string(l_output[i*l.outputs + j]) +  ", ";
-    //     }
-    //     temp_str = temp_str + "\n";
-    // }
-    // LOG_DEBUG("%s",temp_str.c_str());
-    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
-    l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
-    l.loss->setItemsInRange(0, l.loss->getBufferSize(),l_loss);
-}
-
-void backward_softmax_layer(softmax_layer& l, network& net)
-{
-    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-    auto net_delta = net.delta->getItemsInRange(0, net.delta->getBufferSize());
-    axpy_cpu(l.inputs*l.batch, 1, &l_delta[0], 1, &net_delta[0], 1);
-    net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
-}
 #endif
 
 #if defined (USE_SGX) && defined (USE_SGX_BLOCKING)

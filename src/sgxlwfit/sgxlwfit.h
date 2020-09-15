@@ -11,6 +11,7 @@
 	typedef layer convolutional_layer;
 	typedef layer maxpool_layer;
 	typedef layer dropout_layer;
+	typedef layer softmax_layer;
 
 	convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int n, int groups, int size, int stride, int padding, ACTIVATION activation, int batch_normalize, int binary, int xnor, int adam,PRNG& net_layer_rng_deriver);
 	void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net);
@@ -44,6 +45,15 @@
 	void forward_dropout_layer(dropout_layer& l, network& net);
 	void backward_dropout_layer(dropout_layer& l, network& net);
 	void resize_dropout_layer(dropout_layer *l, int inputs);
+
+	void softmax_array(float *input, int n, float temp, float *output);
+	softmax_layer make_softmax_layer(int batch, int inputs, int groups);
+	void forward_softmax_layer(softmax_layer& l, network& net);
+	void backward_softmax_layer(softmax_layer& l, network& net);
+
+	layer make_shortcut_layer(int batch, int index, int w, int h, int c, int w2, int h2, int c2);
+	void forward_shortcut_layer(layer& l, network& net);
+	void backward_shortcut_layer(layer& l, network& net);
 
 	network *make_network(int n);
 	network *load_network(char *cfg, char *weights, int clear,const net_context_variations& context,const verf_variations_t& verf);

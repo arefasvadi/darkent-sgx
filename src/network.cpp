@@ -222,9 +222,14 @@ void forward_network(network *netp)
             fill_cpu(l.outputs * l.batch, 0, l.delta, 1);
             #else
             {
-                auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-                fill_cpu(l.outputs * l.batch, 0, &l_delta[0], 1);
-                l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+                for (int batch=0;batch<l.batch;++batch) {
+                    auto l_delta = l.delta->getItemsInRange(batch*l.outputs,(batch+1)*l.outputs);
+                    fill_cpu(l.outputs * 1, 0, &l_delta[0], 1);
+                    l.delta->setItemsInRange(batch*l.outputs,(batch+1)*l.outputs,l_delta);
+                }
+                // auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+                // fill_cpu(l.outputs * l.batch, 0, &l_delta[0], 1);
+                // l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
             }
             #endif
         }
