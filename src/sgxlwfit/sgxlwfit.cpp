@@ -220,8 +220,8 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   int q = (l.c/l.groups) / l.enclave_layered_batch;
   int r = (l.c/l.groups) % l.enclave_layered_batch;
   
-  auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
-  auto n_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+  // auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+  // auto n_input = net.input->getItemsInRange(0, net.input->getBufferSize());
   int i, j;
   int m = l.n/l.groups;
   int k = l.size*l.size*l.c/l.groups;
@@ -231,12 +231,21 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
   #endif
   
+  if (l.batch_normalize) {
+    LOG_ERROR("Make a separate layer for batch norm!\n");
+    abort();
+  }
+  auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+
   auto n_workspace = l.size != 1 ? std::unique_ptr<float[]>(
                          new float[l.enclave_layered_batch * l.out_h * l.out_w
                                    * l.size * l.size])
                                  : std::unique_ptr<float[]>(nullptr);
   std::vector<float> mm_randomized_output_right(n,0);
   for(i = 0; i < l.batch; ++i){
+    // get the input and output for batch
+    auto l_output = l.output->getItemsInRange(i*l.outputs, (i+1)*l.outputs);
+    auto n_input = net.input->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
     for(j = 0; j < l.groups; ++j){
       #ifndef SGX_CONV_BATCH_PRECOMPUTE_VERIFY
       for (int jj=0;jj<l.n/l.groups;++jj){
@@ -253,8 +262,10 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
         mm_randomized_output_right.size()*sizeof(float));
       //float *a = &l_weights[0] + j * l.nweights / l.groups;
       float *b = nullptr; //&n_workspace[0];
-      float *c = &l_output[0] + (i * l.groups + j) * n * m;
-      float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+      // float *c = &l_output[0] + (i * l.groups + j) * n * m;
+      float *c = &l_output[0] + (j) * n * m;
+      // float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+      float *im =  &n_input[0] + (j)*l.c/l.groups*l.h*l.w;
       if (l.size == 1) {
         SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
         b = im;
@@ -307,21 +318,22 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
         mm_randomized_output_right.data(),c);
       SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KGT_1)
     }
-  }
-  //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
-  // print_array(&l_output[0],100,0,"sgx after mult, before batchnorm forward input");
-  if (l.batch_normalize) {
-    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
-    forward_batchnorm_layer(l, net);
-    l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
 
-  } else {
-    auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
-    add_bias(&l_output[0], &l_biases[0], l.batch, l.n, l.out_h * l.out_w);
+    //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
+    // print_array(&l_output[0],100,0,"sgx after mult, before batchnorm forward input");
+    if (l.batch_normalize) {
+      // l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+      // forward_batchnorm_layer(l, net);
+      // l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+
+    } else {
+      // auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+      add_bias(&l_output[0], &l_biases[0], 1, l.n, l.out_h * l.out_w);
+    }
+    // print_array(&l_output[0],100,0,"sgx after mult, batchnorm before activation forward input");
+    activate_array(&l_output[0], l.outputs * 1, l.activation);
+    l.output->setItemsInRange(i*l.outputs, (i+1)*l.outputs,l_output);
   }
-  // print_array(&l_output[0],100,0,"sgx after mult, batchnorm before activation forward input");
-  activate_array(&l_output[0], l.outputs * l.batch, l.activation);
-  l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
   /* if (l.binary || l.xnor)
     swap_binary(&l); */
   SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV)
@@ -329,121 +341,120 @@ void forward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
 
 void forward_convolutional_layer(convolutional_layer& l, network& net)
 {
-  if (net.verf_type == verf_variations_t::FRBRMMV) {
+  if (*main_verf_task_variation_ == verf_variations_t::FRBRMMV) {
     forward_convolutional_layer_verifies_frbmmv(l, net);
-    return;
   }
-  SET_START_TIMING(SGX_TIMING_FORWARD_CONV)
-  int i, j;
-  SET_START_TIMING("SGX Conv loading weights")
-  auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
-  SET_FINISH_TIMING("SGX Conv loading weights")
-  if (l.batch_normalize) {
-    LOG_ERROR("Make a separate layer for batch norm!\n");
-    abort();
-  }
-  auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
-  //LOG_DEBUG("before forward ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),l_weights[237],l_weights[121])
-  // print_array(&n_input[0],100,0,"sgx before conv forward input");
-  // print_array(&l_weights[0],l.nweights,0,"sgx conv forward weights");
-  int q = (l.c/l.groups) / l.enclave_layered_batch;
-  int r = (l.c/l.groups) % l.enclave_layered_batch;
-  // LOG_DEBUG("q:%d,r=%d, enclave_channel_limit:%d\n",q,r,l.enclave_layered_batch)
-
-  if (l.xnor) {
-    LOG_ERROR("XNOR feature not implemented!\n");
-    abort();
-    /* binarize_weights(l.weights, l.n, l.c / l.groups * l.size * l.size,
-                     l.binary_weights);
-    swap_binary(&l);
-    binarize_cpu(net.input, l.c * l.h * l.w * l.batch, l.binary_input);
-    net.input = l.binary_input; */
-  } 
-
-  int m = l.n / l.groups;
-  int k = l.size * l.size * l.c / l.groups;
-  int n = l.out_w * l.out_h;
-
-  auto n_workspace = l.size != 1 ? std::unique_ptr<float[]>(
-                         new float[l.enclave_layered_batch * l.out_h * l.out_w
-                                   * l.size * l.size])
-                                 : std::unique_ptr<float[]>(nullptr);
-  // LOG_DEBUG("begining conv with parameters outputs:%d, batch:%d,groups:%d,
-  // m:%d, k:%d, n:%d,
-  // out_w:%d,out_h:%d,out_c:%d\n",l.outputs,l.batch,l.groups,m,k,n,l.out_w,l.out_h,l.out_c);
-  for (i = 0; i < l.batch; ++i) {
-    // get the input and output for batch
-    auto l_output = l.output->getItemsInRange(i*l.outputs, (i+1)*l.outputs);
-    auto n_input = net.input->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
-    fill_cpu(l.outputs, 0, &l_output[0], 1);
-    for (j = 0; j < l.groups; ++j) {
-      float *a = &l_weights[0] + j * l.nweights / l.groups;
-      float *b = nullptr; //&n_workspace[0];
-      // processing batch one by one so i=1
-      // float *c = &l_output[0] + (i * l.groups + j) * n * m;
-      float *c = &l_output[0] + (j) * n * m;
-      // float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
-      float *im =  &n_input[0] + (j)*l.c/l.groups*l.h*l.w;
-      if (l.size == 1) {
-          SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
-          b = im;
-          gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
-          SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
-      } else {
-          SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KGT_1)
-          for (int chan = 0; chan < q; chan++) {
-            #ifndef SGX_FAST_TWEAKS_NO_MEMSET
-            std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
-            #endif
-            b = &n_workspace[0];
-            //im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
-            im2col_cpu(im+(chan*l.enclave_layered_batch*l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
-            gemm(0, 0, m, n, (l.enclave_layered_batch*l.size*l.size), 1, a+(chan*l.enclave_layered_batch*l.size*l.size), k, b, n, 1, c, n);  // k is changed
-          }
-          if (r > 0) {
-            b = &n_workspace[0];
-            #ifndef SGX_FAST_TWEAKS_NO_MEMSET
-            std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
-            #endif
-            im2col_cpu(im+(q*l.enclave_layered_batch*l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
-            gemm(0, 0, m, n, (r*l.size*l.size), 1, a+(q*l.enclave_layered_batch*l.size*l.size), k, b, n, 1, c, n);  // k is changed
-          }
-          SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KGT_1)
-          //LOG_DEBUG("Base start index for C (output) is %d",(i * l.groups + j) * n * m)
-          //gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
-      }
-    }
-    //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
-    // print_array(&l_output[0],100,0,"sgx after mult, before batchnorm forward input");
+  else {
+    SET_START_TIMING(SGX_TIMING_FORWARD_CONV)
+    int i, j;
+    SET_START_TIMING("SGX Conv loading weights")
+    auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+    SET_FINISH_TIMING("SGX Conv loading weights")
     if (l.batch_normalize) {
-      // LOG_ERROR("Make a separate layer for batch norm!\n");
-      // abort();
-      // l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
-      // forward_batchnorm_layer(l, net);
-      // l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
-
-    } else {
-      // this should be done in the loop
-      // add_bias(&l_output[0], &l_biases[0], l.batch, l.n, l.out_h * l.out_w);
-      add_bias(&l_output[0], &l_biases[0], 1, l.n, l.out_h * l.out_w);
+      LOG_ERROR("Make a separate layer for batch norm!\n");
+      abort();
     }
-    // activation and saving also should be done in loop
-    // print_array(&l_output[0],100,0,"sgx after mult, batchnorm before activation forward input");
-    activate_array(&l_output[0], l.outputs * 1, l.activation);
-    l.output->setItemsInRange(i*l.outputs, (i+1)*l.outputs,l_output);
+    auto l_biases = l.biases->getItemsInRange(0, l.biases->getBufferSize());
+    //LOG_DEBUG("before forward ID: %u, 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights->getID(),l_weights[237],l_weights[121])
+    // print_array(&n_input[0],100,0,"sgx before conv forward input");
+    // print_array(&l_weights[0],l.nweights,0,"sgx conv forward weights");
+    int q = (l.c/l.groups) / l.enclave_layered_batch;
+    int r = (l.c/l.groups) % l.enclave_layered_batch;
+    // LOG_DEBUG("q:%d,r=%d, enclave_channel_limit:%d\n",q,r,l.enclave_layered_batch)
+
+    if (l.xnor) {
+      LOG_ERROR("XNOR feature not implemented!\n");
+      abort();
+      /* binarize_weights(l.weights, l.n, l.c / l.groups * l.size * l.size,
+                      l.binary_weights);
+      swap_binary(&l);
+      binarize_cpu(net.input, l.c * l.h * l.w * l.batch, l.binary_input);
+      net.input = l.binary_input; */
+    } 
+
+    int m = l.n / l.groups;
+    int k = l.size * l.size * l.c / l.groups;
+    int n = l.out_w * l.out_h;
+
+    auto n_workspace = l.size != 1 ? std::unique_ptr<float[]>(
+                          new float[l.enclave_layered_batch * l.out_h * l.out_w
+                                    * l.size * l.size])
+                                  : std::unique_ptr<float[]>(nullptr);
+    // LOG_DEBUG("begining conv with parameters outputs:%d, batch:%d,groups:%d,
+    // m:%d, k:%d, n:%d,
+    // out_w:%d,out_h:%d,out_c:%d\n",l.outputs,l.batch,l.groups,m,k,n,l.out_w,l.out_h,l.out_c);
+    for (i = 0; i < l.batch; ++i) {
+      // get the input and output for batch
+      auto l_output = l.output->getItemsInRange(i*l.outputs, (i+1)*l.outputs);
+      auto n_input = net.input->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
+      fill_cpu(l.outputs, 0, &l_output[0], 1);
+      for (j = 0; j < l.groups; ++j) {
+        float *a = &l_weights[0] + j * l.nweights / l.groups;
+        float *b = nullptr; //&n_workspace[0];
+        // processing batch one by one so i=1
+        // float *c = &l_output[0] + (i * l.groups + j) * n * m;
+        float *c = &l_output[0] + (j) * n * m;
+        // float *im =  &n_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+        float *im =  &n_input[0] + (j)*l.c/l.groups*l.h*l.w;
+        if (l.size == 1) {
+            SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
+            b = im;
+            gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
+            SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KEQ_1)
+        } else {
+            SET_START_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KGT_1)
+            for (int chan = 0; chan < q; chan++) {
+              #ifndef SGX_FAST_TWEAKS_NO_MEMSET
+              std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
+              #endif
+              b = &n_workspace[0];
+              //im2col_cpu(im, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, b);
+              im2col_cpu(im+(chan*l.enclave_layered_batch*l.h*l.w), l.enclave_layered_batch, l.h, l.w, l.size, l.stride, l.pad, b);
+              gemm(0, 0, m, n, (l.enclave_layered_batch*l.size*l.size), 1, a+(chan*l.enclave_layered_batch*l.size*l.size), k, b, n, 1, c, n);  // k is changed
+            }
+            if (r > 0) {
+              b = &n_workspace[0];
+              #ifndef SGX_FAST_TWEAKS_NO_MEMSET
+              std::memset(&n_workspace[0], 0, sizeof(float)*l.enclave_layered_batch*l.out_h*l.out_w*l.size*l.size);
+              #endif
+              im2col_cpu(im+(q*l.enclave_layered_batch*l.h*l.w), r, l.h, l.w, l.size, l.stride, l.pad, b);
+              gemm(0, 0, m, n, (r*l.size*l.size), 1, a+(q*l.enclave_layered_batch*l.size*l.size), k, b, n, 1, c, n);  // k is changed
+            }
+            SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV_OUT_KGT_1)
+            //LOG_DEBUG("Base start index for C (output) is %d",(i * l.groups + j) * n * m)
+            //gemm(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
+        }
+      }
+      //LOG_DEBUG("Ready for batch normalize!! goinh to batch nrom? %d",l.batch_normalize)
+      // print_array(&l_output[0],100,0,"sgx after mult, before batchnorm forward input");
+      if (l.batch_normalize) {
+        // LOG_ERROR("Make a separate layer for batch norm!\n");
+        // abort();
+        // l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+        // forward_batchnorm_layer(l, net);
+        // l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+
+      } else {
+        // this should be done in the loop
+        // add_bias(&l_output[0], &l_biases[0], l.batch, l.n, l.out_h * l.out_w);
+        add_bias(&l_output[0], &l_biases[0], 1, l.n, l.out_h * l.out_w);
+      }
+      // activation and saving also should be done in loop
+      // print_array(&l_output[0],100,0,"sgx after mult, batchnorm before activation forward input");
+      activate_array(&l_output[0], l.outputs * 1, l.activation);
+      l.output->setItemsInRange(i*l.outputs, (i+1)*l.outputs,l_output);
+    }
+    /* if (l.binary || l.xnor)
+      swap_binary(&l); */
+    SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV)
   }
-  
-  
-  /* if (l.binary || l.xnor)
-    swap_binary(&l); */
-  SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONV)
 }
 
 void backward_convolutional_layer(convolutional_layer& l, network& net) {
-    if (net.verf_type == verf_variations_t::FRBRMMV) {
-        backward_convolutional_layer_verifies_frbmmv(l,net);
-        return;
-    }
+  if (*main_verf_task_variation_ == verf_variations_t::FRBRMMV) {
+    backward_convolutional_layer_verifies_frbmmv(l,net);
+  }
+  else {
     //LOG_DEBUG("before backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("before backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
     SET_START_TIMING(SGX_TIMING_BACKWARD_CONV)
@@ -457,10 +468,11 @@ void backward_convolutional_layer(convolutional_layer& l, network& net) {
     int r = (l.c/l.groups) % l.enclave_layered_batch;
 
     auto net_workspace = l.size != 1 ? std::unique_ptr<float[]>(
-                         new float[l.enclave_layered_batch * l.out_h * l.out_w
-                                   * l.size * l.size])
-                                 : std::unique_ptr<float[]>(nullptr);
-    auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+                          new float[l.enclave_layered_batch * l.out_h * l.out_w
+                                    * l.size * l.size])
+                                  : std::unique_ptr<float[]>(nullptr);
+    // auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
+    auto l_weights = std::unique_ptr<float[]>(nullptr);
     auto l_weight_updates = l.weight_updates->getItemsInRange(0, l.weight_updates->getBufferSize());
     if(l.batch_normalize){
       LOG_ERROR("change it to its own BN layer\n");
@@ -468,9 +480,10 @@ void backward_convolutional_layer(convolutional_layer& l, network& net) {
     }
     auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
     //auto net_workspace = net.workspace->getItemsInRange(0, net.workspace->getBufferSize());
-    if (net.delta == nullptr) {
-      auto del_ptr = l_weights.release();
-      delete[] del_ptr;
+    if (net.delta != nullptr) {
+      // auto del_ptr = l_weights.release();
+      // delete[] del_ptr;
+      l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
     } 
     for(i = 0; i < l.batch; ++i){
         // get the deltas, outputs
@@ -494,7 +507,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net) {
         
         // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
         // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
-        l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+        // l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
       } else {
         // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates before");
         backward_bias(&l_bias_updates[0], &l_delta[0], 1, l.n, k);
@@ -589,6 +602,7 @@ void backward_convolutional_layer(convolutional_layer& l, network& net) {
     SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONV)
     //LOG_DEBUG("after backward 237 and 121 weights are: %0.10e, .. %0.10e\n",l.weights[237],l.weights[121])
     //LOG_DEBUG("after backward 237 and 121 updates for weights are: %0.10e, .. %0.10e\n",l.weight_updates[237],l.weight_updates[121])
+  }
 }
 
 void convolutional_get_MM_weight_updates_left_compare(layer& l, network& net,float* l_weight_updates) {
@@ -750,36 +764,33 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   int n = l.size*l.size*l.c/l.groups;
   int k = l.out_w*l.out_h;
   
-  auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-  auto net_delta  = net.delta ? net.delta->getItemsInRange(0, net.delta->getBufferSize()):std::unique_ptr<float[]>(nullptr);
   #ifndef SGX_CONV_BATCH_PRECOMPUTE_VERIFY
   auto l_weights = l.weights->getItemsInRange(0, l.weights->getBufferSize());
   #endif
+  auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
   int q = (l.c/l.groups) / l.enclave_layered_batch;
   int r = (l.c/l.groups) % l.enclave_layered_batch;
 
-  {
-    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
-    gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
-  }
   // if (net.index == 7) {
   //   std::string text = std::string("SGX convolution delta after gradient on activation layer ") + std::to_string(net.index);
   //   print_array(&l_delta[0],2*l.outputs,0,text.c_str());
   // }
   if(l.batch_normalize){
-      // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
-      // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates bn before");
-      l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
-      backward_batchnorm_layer(l, net);
-      // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
-      // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
-      l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    LOG_ERROR("change it to its own BN layer\n");
+    abort();
+    // // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+    // // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates bn before");
+    // l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+    // backward_batchnorm_layer(l, net);
+    // // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+    // // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
+    // l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
   } else {
-    auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
-    // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates before");
-    backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.n, k);
-    // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
-    l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+    // // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates before");
+    // backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.n, k);
+    // // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
+    // l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
   }
   std::vector<float> mm_randomized_output_right(l.n/l.groups,0);
   std::vector<float> mm_randomized_mid_right(l.out_w*l.out_h,0);
@@ -800,16 +811,31 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
   // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv passed 3rd point layer index=%d\n",net.index)
   int iter = ((*net.seen-net.batch)/(net.batch*net.enclave_subdivisions)) + 1;
   int subdiv = (((*net.seen-net.batch)/net.batch)%net.enclave_subdivisions);
-  auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+  // auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
   // perform weight_updates rand mult
-  for(i = 0; i < l.batch; ++i){
+  for(i = 0; i < l.batch; ++i) {
+    auto l_delta = l.delta->getItemsInRange(i*l.outputs, (i+1)*l.outputs);
+    auto net_delta  = net.delta ? net.delta->getItemsInRange(i*l.inputs, (i+1)*l.inputs):std::unique_ptr<float[]>(nullptr);
+    {
+      auto l_output = l.output->getItemsInRange(i*l.outputs, (i+1)*l.outputs);
+      gradient_array(&l_output[0], l.outputs*1, l.activation, &l_delta[0]);
+    }
+    auto net_input = net.input->getItemsInRange(i*l.inputs, (i+1)*l.inputs);
+    if(!l.batch_normalize){
+      // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates before");
+      backward_bias(&l_bias_updates[0], &l_delta[0], 1, l.n, k);
+      // print_array(&l_bias_updates[0], l.nbiases, 0, "SGX convolutional layer bias updates");
+      // l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    }
     for(j = 0; j < l.groups; ++j){
       // LOG_DEBUG("backward_convolutional_layer_verifies_frbmmv wu mult layer index=%d\n",net.index)
-      float *a = &l_delta[0] + (i*l.groups + j)*m*k;
+      // float *a = &l_delta[0] + (i*l.groups + j)*m*k;
+      float *a = &l_delta[0] + (j)*m*k;
       float *b = nullptr;   //&net_workspace[0];
       //float *c = &l_weight_updates[0] + j*l.nweights/l.groups;
       float *c = nullptr;
-      float *im  = &net_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+      // float *im  = &net_input[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+      float *im  = &net_input[0] + (j)*l.c/l.groups*l.h*l.w;
       std::memset(mm_randomized_mid_right.data(),0,mm_randomized_mid_right.size()*sizeof(float));
       std::memset(mm_randomized_output_right.data(),0,mm_randomized_output_right.size()*sizeof(float));
       if (l.size == 1) {
@@ -898,8 +924,10 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
         #endif
         std::vector<float> net_delta_mm_randomized_output_right(l.out_w*l.out_h,0);
         //a = &l_weights[0] + j*l.nweights/l.groups;
-        b = &l_delta[0] + (i*l.groups + j)*m*k;
-        float *imd = &net_delta[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+        // b = &l_delta[0] + (i*l.groups + j)*m*k;
+        b = &l_delta[0] + (j)*m*k;
+        // float *imd = &net_delta[0] + (i*l.groups + j)*l.c/l.groups*l.h*l.w;
+        float *imd = &net_delta[0] + (j)*l.c/l.groups*l.h*l.w;
         c = nullptr;  // &net_workspace[0];
         
         gemm(0,0,1,(l.out_h*l.out_w),l.n/l.groups,1,
@@ -922,10 +950,14 @@ void backward_convolutional_layer_verifies_frbmmv(layer& l, network& net) {
         }
       }
     }
+    // not here!
+    // net.delta->getItemsInRange(i*l.inputs, (i+1)*l.inputs):std::unique_ptr<float[]>(nullptr);
+    l.delta->setItemsInRange(i*l.outputs, (i+1)*l.outputs,l_delta);
   }
-  if (net.delta) {
-    net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
-  }
+  l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+  // if (net.delta) {
+  //   net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
+  // }
   // check if last backward for this SGD step considering l.batch and l.enclave_subdiv
   if(((*net.seen)/net.batch)%net.enclave_subdivisions == 0) {
     if (l.size == 1) {
@@ -1205,220 +1237,250 @@ void update_connected_layer(layer& l, update_args a)
 
 void forward_connected_layer(layer& l, network& net)
 {   
-  if (net.verf_type == verf_variations_t::FRBRMMV) {
-      forward_connected_layer_verifies_frbmmv(l,net);
-      return;
+  if (*main_verf_task_variation_ == verf_variations_t::FRBRMMV) {
+    forward_connected_layer_verifies_frbmmv(l,net);
   }
-  if(l.batch_normalize){
-    LOG_ERROR("create a separate BN layer\n")
-  }
-  LOG_DEBUG("started lwfit forward connected\n")
-  SET_START_TIMING(SGX_TIMING_FORWARD_CONNCTD)
-  
-  int m = l.batch;
-  int k = l.inputs;
-  int n = l.outputs;
-  
-  int q = l.outputs / l.enclave_layered_batch;
-  int r = l.outputs % l.enclave_layered_batch;
-  for (int i=0;i<q;++i) {
-    SET_START_TIMING("SGX Connected Forward loading weights")
-    auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs,(i+1)*l.enclave_layered_batch*l.inputs);
-    LOG_DEBUG("lwfit forward weights success connected\n")
-    SET_FINISH_TIMING("SGX Connected Forward loading weights")
-    // print_array(&l_weights[0],l.enclave_layered_batch*l.inputs,i*l.enclave_layered_batch*l.inputs,"SGX before connected forward weights");
-    for (int batch=0;batch<l.batch;batch++) {
-      auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
-      // LOG_DEBUG("lwfit forward output success connected\n")
-      // fill_cpu(l.outputs*l.batch, 0, &l_output[0], 1);
-      if (i==0) {
-        fill_cpu(l.outputs*1, 0, &l_output[0], 1);
+  else {
+    SET_START_TIMING(SGX_TIMING_FORWARD_CONNCTD)
+    if(l.batch_normalize){
+      LOG_ERROR("create a separate BN layer\n");
+      abort();
+    }
+    auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize());
+    LOG_DEBUG("started lwfit forward connected\n")
+    
+    
+    int m = l.batch;
+    int k = l.inputs;
+    int n = l.outputs;
+    
+    int q = l.outputs / l.enclave_layered_batch;
+    int r = l.outputs % l.enclave_layered_batch;
+    for (int i=0;i<q;++i) {
+      SET_START_TIMING("SGX Connected Forward loading weights")
+      auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*l.inputs,(i+1)*l.enclave_layered_batch*l.inputs);
+      LOG_DEBUG("lwfit forward weights success connected\n")
+      SET_FINISH_TIMING("SGX Connected Forward loading weights")
+      // print_array(&l_weights[0],l.enclave_layered_batch*l.inputs,i*l.enclave_layered_batch*l.inputs,"SGX before connected forward weights");
+      for (int batch=0;batch<l.batch;batch++) {
+        auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+        // LOG_DEBUG("lwfit forward output success connected\n")
+        // fill_cpu(l.outputs*l.batch, 0, &l_output[0], 1);
+        if (i==0) {
+          fill_cpu(l.outputs*1, 0, &l_output[0], 1);
+        }
+        auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
+        // LOG_DEBUG("lwfit forward net input success connected\n")
+        // print_array(&net_input[0],100,0,"SGX before connected forward input");
+        float *a = &net_input[0];
+        float *b = &l_weights[0];
+        float *c = &l_output[i*l.enclave_layered_batch];
+                
+        // gemm(0,1,m,l.enclave_layered_batch,k,1,a,k,b,k,1,c,n);
+        gemm(0,1,1,l.enclave_layered_batch,k,1,a,k,b,k,1,c,n);
+        // assuming there is no batchnorm
+        if (i==q-1 && r <= 0){
+          add_bias(&l_output[0], &l_biases[0], 1, l.outputs, 1);
+          activate_array(&l_output[0], l.outputs*1, l.activation);
+        }
+        l.output->setItemsInRange(batch*l.outputs, (batch+1)*l.outputs,l_output);
       }
-      auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
-      // LOG_DEBUG("lwfit forward net input success connected\n")
-      // print_array(&net_input[0],100,0,"SGX before connected forward input");
-      float *a = &net_input[0];
-      float *b = &l_weights[0];
-      float *c = &l_output[i*l.enclave_layered_batch];
-              
-      // gemm(0,1,m,l.enclave_layered_batch,k,1,a,k,b,k,1,c,n);
-      gemm(0,1,1,l.enclave_layered_batch,k,1,a,k,b,k,1,c,n);
-      // assuming there is no batchnorm
-      if (i==q-1 && r <= 0){
-        auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize()); 
+    }
+    if (r > 0) {
+      SET_START_TIMING("SGX Connected Forward loading weights")
+      auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*l.inputs,q*l.enclave_layered_batch*l.inputs+r*l.inputs);
+      LOG_DEBUG("lwfit forward weights success connected\n")
+      SET_FINISH_TIMING("SGX Connected Forward loading weights")
+      // print_array(&l_weights[0],r*l.inputs,q*l.enclave_layered_batch*l.inputs,"SGX before connected forward weights");
+      for (int batch=0;batch<l.batch;batch++) {
+        auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+        // LOG_DEBUG("lwfit forward output success connected\n")
+        // fill_cpu(l.outputs*l.batch, 0, &l_output[0], 1);
+        if (q==0) {
+          fill_cpu(l.outputs*1, 0, &l_output[0], 1);
+        }
+        auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
+        float *a = &net_input[0];
+        float *b = &l_weights[0];
+        float *c = &l_output[q*l.enclave_layered_batch];        
+        // gemm(0,1,m,r,k,1,a,k,b,k,1,c,n);
+        gemm(0,1,1,r,k,1,a,k,b,k,1,c,n);
+        // assuming there is no batchnorm
         add_bias(&l_output[0], &l_biases[0], 1, l.outputs, 1);
         activate_array(&l_output[0], l.outputs*1, l.activation);
         l.output->setItemsInRange(batch*l.outputs, (batch+1)*l.outputs,l_output);
       }
     }
-  }
-  if (r > 0) {
-    SET_START_TIMING("SGX Connected Forward loading weights")
-    auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*l.inputs,q*l.enclave_layered_batch*l.inputs+r*l.inputs);
-    LOG_DEBUG("lwfit forward weights success connected\n")
-    SET_FINISH_TIMING("SGX Connected Forward loading weights")
-    // print_array(&l_weights[0],r*l.inputs,q*l.enclave_layered_batch*l.inputs,"SGX before connected forward weights");
-    for (int batch=0;batch<l.batch;batch++) {
-      auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
-      // LOG_DEBUG("lwfit forward output success connected\n")
-      // fill_cpu(l.outputs*l.batch, 0, &l_output[0], 1);
-      if (q==0) {
-        fill_cpu(l.outputs*1, 0, &l_output[0], 1);
-      }
-      auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
-      float *a = &net_input[0];
-      float *b = &l_weights[0];
-      float *c = &l_output[q*l.enclave_layered_batch];        
-      // gemm(0,1,m,r,k,1,a,k,b,k,1,c,n);
-      gemm(0,1,1,r,k,1,a,k,b,k,1,c,n);
-      // assuming there is no batchnorm
-      auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize()); 
-      add_bias(&l_output[0], &l_biases[0], 1, l.outputs, 1);
-      activate_array(&l_output[0], l.outputs*1, l.activation);
-      l.output->setItemsInRange(batch*l.outputs, (batch+1)*l.outputs,l_output);
-    }
-  }
-  //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
-  // LOG_DEBUG("finished lwfit multiplication of forward connected\n")
-  
-  // print_array(&l_output[0],100,0,"SGX connected forward input before bias or batchnorm");
-  if(l.batch_normalize){
-    LOG_ERROR("create a separate BN layer\n")
+    //gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+    // LOG_DEBUG("finished lwfit multiplication of forward connected\n")
+    
+    // print_array(&l_output[0],100,0,"SGX connected forward input before bias or batchnorm");
+    // if(l.batch_normalize){
+    //   LOG_ERROR("create a separate BN layer\n")
+    //   // l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+    //   // forward_batchnorm_layer(l, net);
+    //   // l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+    // } else {
+    //   // auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+    //   // auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize()); 
+    //   // add_bias(&l_output[0], &l_biases[0], l.batch, l.outputs, 1);
+    // }
+    // print_array(&l_output[0],100,0,"SGX connected forward input before bias or batchnorm");
+    // activate_array(&l_output[0], l.outputs*l.batch, l.activation);
     // l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
-    // forward_batchnorm_layer(l, net);
-    // l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
-  } else {
-    // auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
-    // auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize()); 
-    // add_bias(&l_output[0], &l_biases[0], l.batch, l.outputs, 1);
+    SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONNCTD)
+    LOG_DEBUG("finished lwfit forward connected\n")
   }
-  // print_array(&l_output[0],100,0,"SGX connected forward input before bias or batchnorm");
-  // activate_array(&l_output[0], l.outputs*l.batch, l.activation);
-  // l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
-  SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONNCTD)
-  LOG_DEBUG("finished lwfit forward connected\n")
 }
 
 void backward_connected_layer(layer& l, network& net)
 {
-  if (net.verf_type == verf_variations_t::FRBRMMV) {
+  if (*main_verf_task_variation_ == verf_variations_t::FRBRMMV) {
     backward_connected_layer_verifies_frbmmv(l,net);
-    return;
   }
-  SET_START_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
-  if(l.batch_normalize){
-    LOG_ERROR("Use BN layer instead\n")
-    abort();
-  }
-  auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
-  for (int batch=0;batch<l.batch;++batch){
-    auto l_delta = l.delta->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
-    auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
-    // gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
-    gradient_array(&l_output[0], l.outputs*1, l.activation, &l_delta[0]);
+  else {
+    SET_START_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
+    if(l.batch_normalize){
+      LOG_ERROR("Use BN layer instead\n")
+      abort();
+    }
+    auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+    // for (int batch=0;batch<l.batch;++batch){
+    //   auto l_delta = l.delta->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+    //   auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+    //   // gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+    //   gradient_array(&l_output[0], l.outputs*1, l.activation, &l_delta[0]);
+    //   backward_bias(&l_bias_updates[0], &l_delta[0], 1, l.outputs, 1);
+    //   // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
+    //   // l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    //   l.delta->setItemsInRange(batch*l.outputs, (batch+1)*l.outputs,l_delta);
+    // }
     
-    backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.outputs, 1);
-    // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
-    l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
-    l.delta->setItemsInRange(batch*l.outputs, (batch+1)*l.outputs,l_delta);
-  }
-  
-  // if (net.index == 13) {
-  //     print_array(&l_delta[0], l.outputs*l.batch/10, 0, "before connected layer delta");
-  // }
-  // print_array(&l_delta[0], l.outputs*l.batch/10, 0, "after connected layer delta");
+    // if (net.index == 13) {
+    //     print_array(&l_delta[0], l.outputs*l.batch/10, 0, "before connected layer delta");
+    // }
+    // print_array(&l_delta[0], l.outputs*l.batch/10, 0, "after connected layer delta");
 
-  // if(l.batch_normalize){
-  //   LOG_ERROR("Use BN layer instead\n")
-  //   abort();
-  //     // l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
-  //     // backward_batchnorm_layer(l, net);
-  //     // // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
-  //     // // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
-  //     // l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-  // } else {
-  //     // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
-  //     // backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.outputs, 1);
-  //     // // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
-  //     // l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
-  // }
-
-  int q = l.outputs / l.enclave_layered_batch;
-  int r = l.outputs % l.enclave_layered_batch;
-
-  int m = l.outputs;
-  int k = l.batch;
-  int n = l.inputs;
-  // auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
-  // float *b = &net_input[0];
-  {
+    // if(l.batch_normalize){
+    //   LOG_ERROR("Use BN layer instead\n")
+    //   abort();
+    //     // l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+    //     // backward_batchnorm_layer(l, net);
+    //     // // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+    //     // // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
+    //     // l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+    // } else {
+    //     // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+    //     // backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.outputs, 1);
+    //     // // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
+    //     // l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    // }
+    int enclave_layered_batch = l.enclave_layered_batch;
+    if (net.delta) {
+      enclave_layered_batch = enclave_layered_batch / 2;
+    }
+    int q = l.outputs / enclave_layered_batch;
+    int r = l.outputs % enclave_layered_batch;
+    // auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+    // float *b = &net_input[0];
+    
     for (int i=0;i<q;++i) {
-      auto l_weight_updates = l.weight_updates->getItemsInRange(i*l.enclave_layered_batch*n, (i+1)*l.enclave_layered_batch*n);
-      for (int batch=0;batch<l.batch;++batch){
-        auto l_delta = l.delta->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
-        auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
-        float *a = &l_delta[i*l.enclave_layered_batch];
-        float *b = &net_input[0];
-        float *c = &l_weight_updates[0];
-        gemm(1,0,l.enclave_layered_batch,n,1,1,a,m,b,n,1,c,n);
+      auto l_weight_updates = l.weight_updates->getItemsInRange(i*enclave_layered_batch*l.inputs, (i+1)*enclave_layered_batch*l.inputs);
+      auto l_weights = std::unique_ptr<float[]>(nullptr);
+      if (net.delta) {
+        l_weights = l.weights->getItemsInRange(i*enclave_layered_batch*(l.inputs), (i+1)*enclave_layered_batch*l.inputs);
       }
-      // gemm(1,0,l.enclave_layered_batch,n,k,1,a,m,b,n,1,c,n);
-      // print_array(&l_weight_updates[0], l.enclave_layered_batch*n, i*l.enclave_layered_batch*n, "SGX after connected layer weight updates");
-      l.weight_updates->setItemsInRange(i*l.enclave_layered_batch*n, (i+1)*l.enclave_layered_batch*n,l_weight_updates);
+
+      for (int batch=0;batch<l.batch;++batch){
+        int m = l.outputs;
+        int k = l.batch;
+        int n = l.inputs;
+        auto l_delta = l.delta->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+        if (i == 0) {
+          auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+          // gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+          gradient_array(&l_output[0], l.outputs*1, l.activation, &l_delta[0]);
+          backward_bias(&l_bias_updates[0], &l_delta[0], 1, l.outputs, 1);
+          l.delta->setItemsInRange(batch*l.outputs, (batch+1)*l.outputs,l_delta);
+        }
+        {
+          auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
+          float *a = &l_delta[i*enclave_layered_batch];
+          float *b = &net_input[0];
+          float *c = &l_weight_updates[0];
+
+          gemm(1,0,enclave_layered_batch,n,1,1,a,m,b,n,1,c,n);
+          // gemm(1,0,enclave_layered_batch,n,1,1,a,enclave_layered_batch,b,n,1,c,n); // TODO: check this one!
+        }
+        if (net.delta) {
+          int m = l.batch;
+          int k = l.outputs;
+          int n = l.inputs;
+          {
+            auto net_delta = net.delta->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
+            float *a = &l_delta[i*enclave_layered_batch];
+            float* b = &l_weights[0];
+            float* c = &net_delta[0];
+            gemm(0,0,1,n,enclave_layered_batch,1,a,k,b,n,1,c,n);// TODO: check this one!
+            // gemm(0,0,1,n,enclave_layered_batch,1,a,enclave_layered_batch,b,n,1,c,n);
+            net.delta->setItemsInRange(batch*l.inputs, (batch+1)*l.inputs,net_delta);
+          }
+        }
+      }
+      // gemm(1,0,enclave_layered_batch,n,k,1,a,m,b,n,1,c,n);
+      // print_array(&l_weight_updates[0], enclave_layered_batch*n, i*enclave_layered_batch*n, "SGX after connected layer weight updates");
+      l.weight_updates->setItemsInRange(i*enclave_layered_batch*l.inputs, (i+1)*enclave_layered_batch*l.inputs,l_weight_updates);
     }
     if (r > 0) {
-      auto l_weight_updates = l.weight_updates->getItemsInRange(q*l.enclave_layered_batch*n, q*l.enclave_layered_batch*n + r*n);
+      auto l_weight_updates = l.weight_updates->getItemsInRange(q*enclave_layered_batch*l.inputs, q*enclave_layered_batch*l.inputs+r*l.inputs);
+      auto l_weights = std::unique_ptr<float[]>(nullptr);
+      if (net.delta) {
+         l_weights = l.weights->getItemsInRange(q*enclave_layered_batch*(l.inputs), q*enclave_layered_batch*l.inputs+r*l.inputs);
+      }
       for (int batch=0;batch<l.batch;++batch){
+        int m = l.outputs;
+        int k = l.batch;
+        int n = l.inputs;
         auto l_delta = l.delta->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
-        auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
-        float *a = &l_delta[q*l.enclave_layered_batch];
-        float *b = &net_input[0];
-        float *c = &l_weight_updates[0];
-        gemm(1,0,r,n,1,1,a,m,b,n,1,c,n);
+        if (q == 0) {
+          auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+          // gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+          gradient_array(&l_output[0], l.outputs*1, l.activation, &l_delta[0]);
+          backward_bias(&l_bias_updates[0], &l_delta[0], 1, l.outputs, 1);
+          l.delta->setItemsInRange(batch*l.outputs, (batch+1)*l.outputs,l_delta);
+        }
+        {
+          auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
+          float *a = &l_delta[q*enclave_layered_batch];
+          float *b = &net_input[0];
+          float *c = &l_weight_updates[0];
+          gemm(1,0,r,n,1,1,a,m,b,n,1,c,n);// TODO: check this one!
+          // gemm(1,0,r,n,1,1,a,r,b,n,1,c,n);
+        }
+        
+        if (net.delta) {
+          int m = l.batch;
+          int k = l.outputs;
+          int n = l.inputs;
+          {
+            auto net_delta = net.delta->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
+            float *a = &l_delta[q*enclave_layered_batch];
+            float* b = &l_weights[0];
+            float* c = &net_delta[0];
+            gemm(0,0,1,n,r,1,a,k,b,n,1,c,n);// TODO: check this one!
+            // gemm(0,0,1,n,r,1,a,r,b,n,1,c,n);
+            net.delta->setItemsInRange(batch*l.inputs, (batch+1)*l.inputs,net_delta);
+          }
+        }
       }      
       // gemm(1,0,r,n,k,1,a,m,b,n,1,c,n);
-      // print_array(&l_weight_updates[0], r*n, q*l.enclave_layered_batch*n, "SGX after connected layer weight updates");
-      l.weight_updates->setItemsInRange(q*l.enclave_layered_batch*n, q*l.enclave_layered_batch*n+r*n,l_weight_updates);
+      // print_array(&l_weight_updates[0], r*n, q*enclave_layered_batch*n, "SGX after connected layer weight updates");
+      l.weight_updates->setItemsInRange(q*enclave_layered_batch*l.inputs, q*enclave_layered_batch*l.inputs+r*l.inputs, l_weight_updates);
     }
-    //gemm(1,0,m,n,k,1,a,m,b,n,1,c,n);
+      //gemm(1,0,m,n,k,1,a,m,b,n,1,c,n);
+    l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
   }
-
-  m = l.batch;
-  k = l.outputs;
-  n = l.inputs;
-
-  if(net.delta) {
-    for (int i=0;i<q;++i) {
-      auto l_weights = l.weights->getItemsInRange(i*l.enclave_layered_batch*(l.inputs), (i+1)*l.enclave_layered_batch*l.inputs);
-      for (int batch=0;batch<l.batch;++batch){
-        auto l_delta = l.delta->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
-        auto net_delta = net.delta->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
-        float *a = &l_delta[i*l.enclave_layered_batch];
-        float* b = &l_weights[0];
-        float* c = &net_delta[0];
-        gemm(0,0,1,n,l.enclave_layered_batch,1,a,k,b,n,1,c,n);
-        net.delta->setItemsInRange(batch*l.inputs, (batch+1)*l.inputs,net_delta);
-      }
-      // gemm(0,0,m,n,l.enclave_layered_batch,1,a,k,b,n,1,c,n);
-    }
-    if (r > 0) {      
-      auto l_weights = l.weights->getItemsInRange(q*l.enclave_layered_batch*(l.inputs), q*l.enclave_layered_batch*l.inputs+r*l.inputs);
-      for (int batch=0;batch<l.batch;++batch){
-        auto l_delta = l.delta->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
-        auto net_delta = net.delta->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
-        float *a = &l_delta[q*l.enclave_layered_batch];
-        float* b = &l_weights[0];
-        float* c = &net_delta[0];
-        gemm(0,0,1,n,r,1,a,k,b,n,1,c,n);
-        net.delta->setItemsInRange(batch*l.inputs, (batch+1)*l.inputs,net_delta);
-      }
-
-    }
-      //gemm(0,0,m,n,k,1,a,k,b,n,1,c,n);
-      // print_array(&net_delta[0], l.batch*l.inputs, 0, "SGX after connected layer net delta");
-      // net.delta->setItemsInRange(0, net.delta->getBufferSize(),net_delta);
-  }
-  SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
 }
 
 void connected_get_MM_output_left_compare(layer& l, network& net,float* rand_vec,float* rand_right,
@@ -1443,36 +1505,64 @@ float* l_output) {
 }
 
 void forward_connected_layer_verifies_frbmmv(layer& l, network& net) {
-    SET_START_TIMING(SGX_TIMING_FORWARD_CONNCTD)
-    std::vector<float> mm_randomized_output_right(l.batch,0);
-    auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
-    auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
-    gemm(0,0,l.batch,1,l.inputs,1,
-        &net_input[0],l.inputs,
-        l.frwd_outs_rhs,1,
+  SET_START_TIMING(SGX_TIMING_FORWARD_CONNCTD);
+  std::vector<float> mm_randomized_output_right(l.batch,0);
+  std::vector<float> rand_left(l.batch,0);
+  if(l.batch_normalize){
+    LOG_ERROR("create a separate BN layer\n");
+    abort();
+  }
+  auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize());
+  
+  for (int batch=0;batch<l.batch;batch++) {
+    auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
+    // gemm(0,0,l.batch,1,l.inputs,1,
+    gemm(0,0,1,1,l.inputs,1,
+      &net_input[0],l.inputs,
+      l.frwd_outs_rhs,1,
+      1,
+      // mm_randomized_output_right.data(),1);
+      mm_randomized_output_right.data()+batch,1);
+  }
+
+  for (int batch=0;batch<l.batch;batch++) {
+    auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+    gemm(0,0,1,1,l.outputs,1,
+        &l_output[0],l.outputs,
+        l.frwd_outs_rand,1,
         1,
-        mm_randomized_output_right.data(),1);
-    connected_get_MM_output_left_compare(l,net,
-        l.frwd_outs_rand,mm_randomized_output_right.data(),l_output.get());
-   
-    // if (net.index == 13) {
-    //     print_array(&l_output[0],l.batch*l.outputs,0,"SGX connected forward input before bias or batchnorm");
-    // }
-    if(l.batch_normalize){
-        l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
-        forward_batchnorm_layer(l, net);
-        l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
-    } else {
-        auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize()); 
-        add_bias(&l_output[0], &l_biases[0], l.batch, l.outputs, 1);
+        rand_left.data()+batch,1);
+    // connected_get_MM_output_left_compare(l,net,
+    //   l.frwd_outs_rand,mm_randomized_output_right.data(),l_output.get());
+    if (std::fabs(mm_randomized_output_right[batch]-rand_left[batch]) > 0.00001f) {
+      LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+          batch,mm_randomized_output_right[batch],rand_left[batch])
+      abort();
     }
-    // if (net.index == 13) {
-    //     print_array(&l_output[0],l.batch*l.outputs,0,"SGX connected forward input after bias or batchnorm before activation");
-    // }
-    // print_array(&l_output[0],100,0,"SGX connected forward input after bias or batchnorm");
-    activate_array(&l_output[0], l.outputs*l.batch, l.activation);
-    l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
-    SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONNCTD)
+    // check for if batch normalize 
+    add_bias(&l_output[0], &l_biases[0], 1, l.outputs, 1);
+    activate_array(&l_output[0], l.outputs*1, l.activation);
+    l.output->setItemsInRange(batch*l.outputs, (batch+1)*l.outputs,l_output);
+  }
+  
+  // if (net.index == 13) {
+  //     print_array(&l_output[0],l.batch*l.outputs,0,"SGX connected forward input before bias or batchnorm");
+  // }
+  // if(l.batch_normalize){
+  //     l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+  //     forward_batchnorm_layer(l, net);
+  //     l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+  // } else {
+  //     auto l_biases = l.biases->getItemsInRange(0,l.biases->getBufferSize()); 
+  //     add_bias(&l_output[0], &l_biases[0], l.batch, l.outputs, 1);
+  // }
+  // if (net.index == 13) {
+  //     print_array(&l_output[0],l.batch*l.outputs,0,"SGX connected forward input after bias or batchnorm before activation");
+  // }
+  // print_array(&l_output[0],100,0,"SGX connected forward input after bias or batchnorm");
+  // activate_array(&l_output[0], l.outputs*l.batch, l.activation);
+  // l.output->setItemsInRange(0, l.output->getBufferSize(),l_output);
+  SET_FINISH_TIMING(SGX_TIMING_FORWARD_CONNCTD);
 }
 
 void connected_get_MM_weight_updates_left_compare(layer& l, network& net) {
@@ -1526,66 +1616,121 @@ void connected_get_MM_output_prevdelta_left_compare(layer& l, network& net,float
 }
 
 void backward_connected_layer_verifies_frbmmv(layer& l, network& net) {
-    SET_START_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
-    auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-    // if (net.index == 13) {
-    //     print_array(&l_delta[0], l.outputs*l.batch/10, 0, "before connected layer delta");
-    // }
-    {
-        auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
-        gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
-    }
-    // print_array(&l_delta[0], l.outputs*l.batch/10, 0, "after connected layer delta");
+  SET_START_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
+  // auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+  // if (net.index == 13) {
+  //     print_array(&l_delta[0], l.outputs*l.batch/10, 0, "before connected layer delta");
+  // }
+  // {
+  //   auto l_output = l.output->getItemsInRange(0, l.output->getBufferSize());
+  //   gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+  // }
+  // print_array(&l_delta[0], l.outputs*l.batch/10, 0, "after connected layer delta");
+  if(l.batch_normalize){
+    LOG_ERROR("Use BN layer instead\n")
+    abort();
+  }
+  auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+  std::vector<float> mm_randomized_output_right(l.outputs,0);
+  std::vector<float> mm_randomized_mid_right(l.batch,0);
+  std::vector<float> bkwrd_input_delta_mm_randomized_output_right(l.batch,0);
+  std::vector<float> rand_left(l.batch,0);
+  
+  for (int batch=0;batch<l.batch;++batch) {
+    auto l_delta = l.delta->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+    auto l_output = l.output->getItemsInRange(batch*l.outputs, (batch+1)*l.outputs);
+    // gradient_array(&l_output[0], l.outputs*l.batch, l.activation, &l_delta[0]);
+    gradient_array(&l_output[0], l.outputs*1, l.activation, &l_delta[0]);
+    backward_bias(&l_bias_updates[0], &l_delta[0], 1, l.outputs, 1);
+    // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
+    // l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+    auto net_input = net.input->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
+    gemm(0,0,1,1,l.inputs,1,
+    net_input.get(),l.inputs,
+    l.bkwrd_weight_delta_rand,1,
+    1,
+    mm_randomized_mid_right.data()+batch,1);
 
-    if(l.batch_normalize){
-        l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
-        backward_batchnorm_layer(l, net);
-        // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
-        // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
-        l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-    } else {
-        auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
-        backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.outputs, 1);
-        // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
-        l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
-    }
-    std::vector<float> mm_randomized_output_right(l.outputs,0);
-    std::vector<float> mm_randomized_mid_right(l.batch,0);
-    {
-        auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
-        gemm(0,0,l.batch,1,l.inputs,1,
-        net_input.get(),l.inputs,
-        l.bkwrd_weight_delta_rand,1,
-        1,
-        mm_randomized_mid_right.data(),1);
-    }
-    //auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
-    {
-        gemm(1,0,l.outputs,1,l.batch,1,
-        l_delta.get(),l.outputs,
-        mm_randomized_mid_right.data(),1,
-        1,
-        mm_randomized_output_right.data(),1);
-    }
-    for (int i=0;i<mm_randomized_output_right.size();++i) {
-        l.bkwrd_weight_delta_rhs[i] += mm_randomized_output_right[i];
-    }
-    if(((*net.seen)/net.batch)%net.enclave_subdivisions == 0) {
-        connected_get_MM_weight_updates_left_compare(l, net);
-    }
-    if (net.delta) {
-        mm_randomized_output_right.resize(l.batch);
-        std::memset(mm_randomized_output_right.data(),0,sizeof(float)*l.batch);
+    gemm(1,0,l.outputs,1,1,1,
+      l_delta.get(),l.outputs,
+      mm_randomized_mid_right.data()+batch,1,
+      1,
+      mm_randomized_output_right.data(),1);
+    
+    ////////////////////////////////////////////////
 
-        gemm(0,0,l.batch,1,l.outputs,1,
-        l_delta.get(),l.outputs,
-        l.bkwrd_input_delta_rhs,1,
-        1,
-        mm_randomized_output_right.data(),1);
-        connected_get_MM_output_prevdelta_left_compare(l, 
-            net,l.bkwrd_input_delta_rand, mm_randomized_output_right.data());
+    gemm(0,0,1,1,l.outputs,1,
+      l_delta.get(),l.outputs,
+      l.bkwrd_input_delta_rhs,1,
+      1,
+      bkwrd_input_delta_mm_randomized_output_right.data()+batch,1);
+                                                    
+    auto net_delta = net.delta->getItemsInRange(batch*l.inputs, (batch+1)*l.inputs);
+    gemm(0,0,1,1,l.inputs,1,
+      net_delta.get(),l.inputs,l.bkwrd_input_delta_rand,1,
+      1,
+      rand_left.data()+batch,1);
+    
+    if (std::fabs(bkwrd_input_delta_mm_randomized_output_right[batch]-rand_left[batch]) > 0.00001f) {
+        LOG_ERROR("rand verify value mismatch at index %d for MM output with values (left,right):(%f,%f)\n",
+          batch,rand_left[batch],bkwrd_input_delta_mm_randomized_output_right[batch])
+        abort();
     }
-    SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
+    l.delta->setItemsInRange(batch*l.outputs, (batch+1)*l.outputs,l_delta);
+  }
+
+  for (int i=0;i<mm_randomized_output_right.size();++i) {
+    l.bkwrd_weight_delta_rhs[i] += mm_randomized_output_right[i];
+  }
+  if(((*net.seen)/net.batch)%net.enclave_subdivisions == 0) {
+    connected_get_MM_weight_updates_left_compare(l, net);
+  }
+  // if(l.batch_normalize){
+  //     l.delta->setItemsInRange(0, l.delta->getBufferSize(),l_delta);
+  //     backward_batchnorm_layer(l, net);
+  //     // auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+  //     // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
+  //     l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+  // } else {
+  //     auto l_bias_updates = l.bias_updates->getItemsInRange(0, l.bias_updates->getBufferSize());
+  //     backward_bias(&l_bias_updates[0], &l_delta[0], l.batch, l.outputs, 1);
+  //     // print_array(&l_bias_updates[0], l.outputs, 0, "SGX connected layer bias updates");
+  //     l.bias_updates->setItemsInRange(0, l.bias_updates->getBufferSize(), l_bias_updates);
+  // }
+  
+  // {
+  //     auto net_input = net.input->getItemsInRange(0, net.input->getBufferSize());
+  //     gemm(0,0,l.batch,1,l.inputs,1,
+  //     net_input.get(),l.inputs,
+  //     l.bkwrd_weight_delta_rand,1,
+  //     1,
+  //     mm_randomized_mid_right.data(),1);
+  // }
+  //auto l_delta = l.delta->getItemsInRange(0, l.delta->getBufferSize());
+  // {
+  //     gemm(1,0,l.outputs,1,l.batch,1,
+  //     l_delta.get(),l.outputs,
+  //     mm_randomized_mid_right.data(),1,
+  //     1,
+  //     mm_randomized_output_right.data(),1);
+  // }
+  // for (int i=0;i<mm_randomized_output_right.size();++i) {
+  //     l.bkwrd_weight_delta_rhs[i] += mm_randomized_output_right[i];
+  // }
+
+  // if(((*net.seen)/net.batch)%net.enclave_subdivisions == 0) {
+  //     connected_get_MM_weight_updates_left_compare(l, net);
+  // }
+  // if (net.delta) {
+  //   gemm(0,0,l.batch,1,l.outputs,1,
+  //   l_delta.get(),l.outputs,
+  //   l.bkwrd_input_delta_rhs,1,
+  //   1,
+  //   mm_randomized_output_right.data(),1);
+  //   connected_get_MM_output_prevdelta_left_compare(l, 
+  //       net,l.bkwrd_input_delta_rand, mm_randomized_output_right.data());
+  // }
+  SET_FINISH_TIMING(SGX_TIMING_BACKWARD_CONNCTD)
 }
 
 maxpool_layer make_maxpool_layer(int batch, int h, int w, int c, int size, int stride, int padding)

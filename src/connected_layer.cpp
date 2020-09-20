@@ -423,9 +423,13 @@ void forward_connected_layer_gpu_frbmmv(layer l, network net) {
     }
     auto& net_report = train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration];
     if (net_report.net_layers_reports.count(net.index) == 0) {
+        
         net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
-        net_report.net_layers_reports[net.index].layer_forward_MM_outputs = std::vector<uint8_t>();
-        net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
+        net_report.net_layers_reports[net.index].layer_forward_MM_outputs = std::move(std::vector<uint8_t>());
+        net_report.net_layers_reports[net.index].layer_forward_MM_outputs.reserve(l.outputs*l.batch*sizeof(float)*net.subdivisions);
+        net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::move(std::vector<uint8_t>());
+        net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta.reserve(
+          l.inputs*l.batch*sizeof(float)*net.subdivisions);
     }
     auto& layer_report = net_report.net_layers_reports[net.index];
     auto curr_out_size = layer_report.layer_forward_MM_outputs.size();
@@ -483,13 +487,14 @@ void backward_connected_layer_gpu_frbmmv(layer l, network net) {
         gemm_gpu(0,0,m,n,k,1,a,k,b,n,1,c,n);
         // store the output of MM
         if (train_iterations_snapshots_frbmmv.step_net_reports.count(gpu_iteration) == 0) {
+            LOG_ERROR("error step net report not initialized!\n")
             train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration] = std::move(network_batch_step_snapshot_frbmmv_t());
         }
         auto& net_report = train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration];
-        if (net_report.net_layers_reports.count(net.index) == 0) {
-            net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
-            net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
-        }
+        // if (net_report.net_layers_reports.count(net.index) == 0) {
+        //     net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
+        //     net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
+        // }
         auto& layer_report = net_report.net_layers_reports[net.index];
         auto curr_out_size = layer_report.layer_backward_MM_prev_delta.size();
         layer_report.layer_backward_MM_prev_delta.resize(curr_out_size+(l.inputs*l.batch*sizeof(float)));

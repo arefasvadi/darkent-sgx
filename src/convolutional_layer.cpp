@@ -689,7 +689,6 @@ image *get_weights(convolutional_layer l) {
 #if defined(SGX_VERIFIES) && defined(GPU)
 
 void forward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net) {
-
     fill_gpu(l.outputs*l.batch, 0, l.output_gpu, 1);
     if(l.binary){
         // binarize_weights_gpu(l.weights_gpu, l.n, l.c/l.groups*l.size*l.size, l.binary_weights_gpu);
@@ -733,8 +732,18 @@ void forward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net) 
     auto& net_report = train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration];
     if (net_report.net_layers_reports.count(net.index) == 0) {
         net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
-        net_report.net_layers_reports[net.index].layer_forward_MM_outputs = std::vector<uint8_t>();
-        net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
+        net_report.net_layers_reports[net.index].layer_forward_MM_outputs = std::move(std::vector<uint8_t>());
+        net_report.net_layers_reports[net.index].layer_forward_MM_outputs.reserve(l.outputs*l.batch*sizeof(float)*net.subdivisions);
+        if (net.index != 0){
+          net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::move(std::vector<uint8_t>());
+          #if defined(CONV_BACKWRD_INPUT_GRAD_COPY_BEFORE_COL2IM)
+          net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta.reserve(
+            l.batch*net.subdivisions*(l.size*l.size*l.c*l.out_h*l.out_w*sizeof(float)));
+          #elif defined (CONV_BACKWRD_INPUT_GRAD_COPY_AFTER_COL2IM)
+          net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta.reserve(
+            l.inputs*l.batch*sizeof(float)*net.subdivisions);
+          #endif
+        }
     }
     
     auto& layer_report = net_report.net_layers_reports[net.index];
@@ -773,13 +782,14 @@ void backward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net)
     float *original_input = net.input_gpu;
     
     if (train_iterations_snapshots_frbmmv.step_net_reports.count(gpu_iteration) == 0) {
+      LOG_ERROR("error step net report not initialized!\n")
       train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration] = std::move(network_batch_step_snapshot_frbmmv_t());
     }
     auto& net_report = train_iterations_snapshots_frbmmv.step_net_reports[gpu_iteration];
-    if (net_report.net_layers_reports.count(net.index) == 0) {
-        net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
-        net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
-    }
+    // if (net_report.net_layers_reports.count(net.index) == 0) {
+    //     net_report.net_layers_reports[net.index] = std::move(layer_batch_step_snapshot_frbmmv_t());
+    //     net_report.net_layers_reports[net.index].layer_backward_MM_prev_delta = std::vector<uint8_t>();
+    // }
     auto& layer_report = net_report.net_layers_reports[net.index];
     // if(l.xnor) net.input_gpu = l.binary_input_gpu;
 
@@ -788,7 +798,8 @@ void backward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net)
     int k = l.out_w*l.out_h;
 
     int i, j;
-    
+    // TODO: Only supports groups=1 for now! should think of implications of the loops for
+    // grouped convolutions verification
     for(i = 0; i < l.batch; ++i){
         for(j = 0; j < l.groups; ++j){
             float *a = l.delta_gpu + (i*l.groups + j)*m*k;
@@ -825,13 +836,6 @@ void backward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net)
                 if (l.size != 1) {
                     col2im_gpu(net.workspace, l.c/l.groups, l.h, l.w, l.size, l.stride, l.pad, imd);
                 }
-                #ifdef CONV_BACKWRD_INPUT_GRAD_COPY_AFTER_COL2IM
-                auto curr_out_size = layer_report.layer_backward_MM_prev_delta.size();
-                // (l.batch * l.inputs *sizeof(float))
-                layer_report.layer_backward_MM_prev_delta.resize(curr_out_size+(l.inputs*sizeof(float)));
-                cuda_pull_array(imd, (float*)(layer_report.layer_backward_MM_prev_delta.data()+curr_out_size),
-                  (l.inputs));
-                #endif
                 if(l.binary || l.xnor) {
                     swap_binary(&l);
                 }
@@ -839,10 +843,18 @@ void backward_convolutional_layer_gpu_frbmmv(convolutional_layer l, network net)
             // if(l.xnor) gradient_array_gpu(original_input + i*l.c*l.h*l.w, l.c*l.h*l.w, HARDTAN, net.delta_gpu + i*l.c*l.h*l.w);
         }
     }
+    #ifdef CONV_BACKWRD_INPUT_GRAD_COPY_AFTER_COL2IM
+    if (net.index != 0){
+      auto curr_out_size = layer_report.layer_backward_MM_prev_delta.size();
+      // (l.batch * l.inputs *sizeof(float))
+      layer_report.layer_backward_MM_prev_delta.resize(curr_out_size+(l.batch*l.inputs*sizeof(float)));
+      cuda_pull_array(net.delta_gpu, (float*)(layer_report.layer_backward_MM_prev_delta.data()+curr_out_size),(l.inputs*l.batch));
+    }
+    
+    #endif
 }
 
-void
-forward_convolutional_gpu_sgx_verifies_(convolutional_layer l, network net) {
+void forward_convolutional_gpu_sgx_verifies_(convolutional_layer l, network net) {
   if (*main_verf_task_variation_ == verf_variations_t::FRBV) {
     forward_convolutional_layer_gpu(l, net);
     return;
@@ -850,8 +862,8 @@ forward_convolutional_gpu_sgx_verifies_(convolutional_layer l, network net) {
   forward_convolutional_layer_gpu_frbmmv(l, net);
   return;
 }
-void
-backward_convolutional_gpu_sgx_verifies_(convolutional_layer l, network net) {
+
+void backward_convolutional_gpu_sgx_verifies_(convolutional_layer l, network net) {
   if (*main_verf_task_variation_ == verf_variations_t::FRBV) {
     backward_convolutional_layer_gpu(l, net);
     return;
@@ -859,8 +871,8 @@ backward_convolutional_gpu_sgx_verifies_(convolutional_layer l, network net) {
   backward_convolutional_layer_gpu_frbmmv(l, net);
   return;
 }
-void
-update_convolutional_gpu_sgx_verifies_(convolutional_layer l, update_args a) {
+
+void update_convolutional_gpu_sgx_verifies_(convolutional_layer l, update_args a) {
   update_convolutional_layer_gpu(l, a);
 }
 
