@@ -506,9 +506,14 @@ float *parse_fields(char *line, int n)
 
 float sum_array(float *a, int n)
 {
-    int i;
+    // int i;
     float sum = 0;
-    for(i = 0; i < n; ++i) sum += a[i];
+
+    // #pragma omp parallel for
+    // #pragma omp parallel for reduction (+:sum)
+    for(int i = 0; i < n; ++i) {
+        sum += a[i];
+    }
     return sum;
 }
 

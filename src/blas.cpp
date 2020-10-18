@@ -140,6 +140,7 @@ void shortcut_cpu(int batch, int w1, int h1, int c1, float *add, int w2, int h2,
 
     int i,j,k,b;
     for(b = 0; b < batch; ++b){
+        // #pragma omp parallel for
         for(k = 0; k < minc; ++k){
             for(j = 0; j < minh; ++j){
                 for(i = 0; i < minw; ++i){
@@ -230,13 +231,19 @@ void const_cpu(int N, float ALPHA, float *X, int INCX)
 void mul_cpu(int N, float *X, int INCX, float *Y, int INCY)
 {
     int i;
-    for(i = 0; i < N; ++i) Y[i*INCY] *= X[i*INCX];
+    #pragma omp parallel for
+    for(i = 0; i < N; ++i) { 
+        Y[i*INCY] *= X[i*INCX];
+    }
 }
 
 void pow_cpu(int N, float ALPHA, float *X, int INCX, float *Y, int INCY)
 {
     int i;
-    for(i = 0; i < N; ++i) Y[i*INCY] = std::pow(X[i*INCX], ALPHA);
+    #pragma omp parallel for
+    for(i = 0; i < N; ++i) {
+        Y[i*INCY] = std::pow(X[i*INCX], ALPHA);
+    }
 }
 
 void axpy_cpu(int N, float ALPHA, float *X, int INCX, float *Y, int INCY)
@@ -246,7 +253,10 @@ void axpy_cpu(int N, float ALPHA, float *X, int INCX, float *Y, int INCY)
     // ocall_set_timing(timing_key,strlen(timing_key)+1 , 1, 0);
     // #endif
     int i;
-    for(i = 0; i < N; ++i) Y[i*INCY] += ALPHA*X[i*INCX];
+    #pragma omp parallel for
+    for(i = 0; i < N; ++i) {
+        Y[i*INCY] += ALPHA*X[i*INCX];
+    }
     // #ifdef USE_SGX
     // ocall_set_timing(timing_key,strlen(timing_key)+1 , 0, 1);
     // #endif
@@ -273,7 +283,10 @@ void scal_cpu(int N, float ALPHA, float *X, int INCX)
     // ocall_set_timing(timing_key,strlen(timing_key)+1 , 1, 0);
     // #endif
     int i;
-    for(i = 0; i < N; ++i) X[i*INCX] *= ALPHA;
+    #pragma omp parallel for
+    for(i = 0; i < N; ++i) {
+        X[i*INCX] *= ALPHA;
+    }
     // #ifdef USE_SGX
     // ocall_set_timing(timing_key,strlen(timing_key)+1 , 0, 1);
     // #endif
@@ -301,7 +314,10 @@ void fill_cpu(int N, float ALPHA, float *X, int INCX)
     // ocall_set_timing(timing_key,strlen(timing_key)+1 , 1, 0);
     // #endif
     int i;
-    for(i = 0; i < N; ++i) X[i*INCX] = ALPHA;
+    #pragma omp parallel for
+    for(i = 0; i < N; ++i) {
+        X[i*INCX] = ALPHA;
+    }
     // #ifdef USE_SGX
     // ocall_set_timing(timing_key,strlen(timing_key)+1 , 0, 1);
     // #endif
@@ -311,6 +327,7 @@ void fill_cpu(int N, float ALPHA, float *X, int INCX)
 void constrain_cpu(int N, float ALPHA, float *X, int INCX)
 {
     int i;
+    #pragma omp parallel for
     for(i = 0; i < N; ++i) {
         X[i*INCX] = fminf(ALPHA, fmaxf(-ALPHA, X[i*INCX]));
     }
@@ -350,12 +367,14 @@ void inter_cpu(int NX, float *X, int NY, float *Y, int B, float *OUT)
 void copy_cpu(int N, float *X, int INCX, float *Y, int INCY)
 {
     int i;
-    for(i = 0; i < N; ++i) Y[i*INCY] = X[i*INCX];
+    #pragma omp parallel for
+    for(i = 0; i < N; ++i) {Y[i*INCY] = X[i*INCX];}
 }
 
 void mult_add_into_cpu(int N, float *X, float *Y, float *Z)
 {
     int i;
+    #pragma omp parallel for
     for(i = 0; i < N; ++i) Z[i] += X[i]*Y[i];
 }
 
@@ -393,6 +412,7 @@ void l1_cpu(int n, float *pred, float *truth, float *delta, float *error)
 void softmax_x_ent_cpu(int n, float *pred, float *truth, float *delta, float *error)
 {
     int i;
+    #pragma omp parallel for
     for(i = 0; i < n; ++i){
         float t = truth[i];
         float p = pred[i];
@@ -437,14 +457,19 @@ void softmax(float *input, int n, float temp, int stride, float *output)
     float sum = 0;
     float largest = -FLT_MAX;
     // TODO: Remember for making it memory oblivious
+    // #pragma omp parallel for
     for(i = 0; i < n; ++i){
         if(input[i*stride] > largest) largest = input[i*stride];
     }
+
+    // #pragma omp parallel for
     for(i = 0; i < n; ++i){
         float e = std::exp(input[i*stride]/temp - largest/temp);
         sum += e;
         output[i*stride] = e;
     }
+
+    #pragma omp parallel for
     for(i = 0; i < n; ++i){
         output[i*stride] /= sum;
     }

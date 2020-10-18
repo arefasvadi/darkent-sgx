@@ -3,15 +3,17 @@
 #include "col2im.h"
 
 
-void col2im_add_pixel(float *im, int height, int width, int channels,
+inline void col2im_add_pixel(float *im, int height, int width, int channels,
                         int row, int col, int channel, int pad, float val)
 {
     row -= pad;
     col -= pad;
 
-    if (row < 0 || col < 0 ||
-        row >= height || col >= width) return;
-    im[col + width*(row + height*channel)] += val;
+    // if (row < 0 || col < 0 ||
+    //     row >= height || col >= width) return;
+    if (((unsigned) row) < ((unsigned) height) && ((unsigned) col) < ((unsigned) width)) {
+        im[col + width*(row + height*channel)] += val;
+    }
 }
 
 void col2im_add_pixel1D(float *im, int height, int width, int channels,
@@ -20,9 +22,12 @@ void col2im_add_pixel1D(float *im, int height, int width, int channels,
     //row -= pad;
     col -= pad;
 
-    if (row < 0 || col < 0 ||
-        row >= height || col >= width) return;
-    im[col + width*(row + height*channel)] += val;
+    // if (row < 0 || col < 0 ||
+    //     row >= height || col >= width) return;
+    if (((unsigned) row) < ((unsigned) height) && ((unsigned) col) < ((unsigned) width)) {
+        im[col + width*(row + height*channel)] += val;
+    }
+
 }
 
 //This one might be too, can't remember.
@@ -34,22 +39,28 @@ void col2im_cpu(float* data_col,
     SET_START_TIMING(SGX_TIMING_CONV_COL2IM);
     #endif
     int c,h,w;
-    int height_col = (height + 2*pad - ksize) / stride + 1;
-    int width_col = (width + 2*pad - ksize) / stride + 1;
+    const int height_col = (height + 2*pad - ksize) / stride + 1;
+    const int width_col = (width + 2*pad - ksize) / stride + 1;
 
-    int channels_col = channels * ksize * ksize;
-    for (c = 0; c < channels_col; ++c) {
+    const int channels_col = channels * ksize * ksize;
+    // #pragma omp parallel for
+    int col_major_ind=0;
+    // #pragma omp parallel for collapse(3)
+    // #pragma parallel for num_threads(6)
+    for (int c = 0; c < channels_col; ++c) {
         int w_offset = c % ksize;
         int h_offset = (c / ksize) % ksize;
         int c_im = c / ksize / ksize;
-        for (h = 0; h < height_col; ++h) {
-            for (w = 0; w < width_col; ++w) {
-                int im_row = h_offset + h * stride;
+        for (int h = 0; h < height_col; ++h) {
+            int im_row = h_offset + h * stride;
+            for (int w = 0; w < width_col; ++w) {
                 int im_col = w_offset + w * stride;
-                int col_index = (c * height_col + h) * width_col + w;
-                double val = data_col[col_index];
+                // https://software.intel.com/content/www/us/en/develop/articles/caffe-optimized-for-intel-architecture-applying-modern-code-techniques.html
+                // int col_index = (c * height_col + h) * width_col + w;
+                // double val = data_col[col_index];
                 col2im_add_pixel(data_im, height, width, channels,
-                        im_row, im_col, c_im, pad, val);
+                        im_row, im_col, c_im, pad, data_col[col_major_ind]);
+                ++col_major_ind;
             }
         }
     }

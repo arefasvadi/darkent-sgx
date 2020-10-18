@@ -1,15 +1,18 @@
 #include "im2col.h"
 #include <stdio.h>
 
-float im2col_get_pixel(float *im, int height, int width, int channels,
+inline float im2col_get_pixel(float *im, int height, int width, int channels,
                         int row, int col, int channel, int pad)
 {
     row -= pad;
     col -= pad;
 
-    if (row < 0 || col < 0 ||
-        row >= height || col >= width) return 0;
-    return im[col + width*(row + height*channel)];
+    // if (row < 0 || col < 0 ||
+    //     row >= height || col >= width) return 0;
+    if (((unsigned) row) < ((unsigned) height) && ((unsigned) col) < ((unsigned) width)) {
+        return im[col + width*(row + height*channel)];
+    }
+    return 0;
 }
 
 float im2col_get_pixel1D(float *im, int height, int width, int channels,
@@ -33,21 +36,48 @@ void im2col_cpu(float* data_im,
     SET_START_TIMING(SGX_TIMING_CONV_IM2COL);
     #endif
     int c,h,w;
-    int height_col = (height + 2*pad - ksize) / stride + 1;
-    int width_col = (width + 2*pad - ksize) / stride + 1;
+    const int height_col = (height + 2*pad - ksize) / stride + 1;
+    const int width_col = (width + 2*pad - ksize) / stride + 1;
 
-    int channels_col = channels * ksize * ksize;
+    const int channels_col = channels * ksize * ksize;
+    // #pragma omp parallel for
+    // int col_major_ind=0;
+    // #pragma omp parallel for collapse(2)
+    // #pragma parallel for num_threads(6)
+    int w_offset,h_offset, c_im,im_col,im_row,row,col,row_offset,srow_offset;
+    // schedule(dynamic,ksize)
+    // #pragma parallel for num_threads(6) schedule(static,ksize) private(c,h,w, w_offset, h_offset, c_im,im_row,im_row,im_col,row,col,row_offset,srow_offset) shared(ksize,stride,height_col,width_col,channels_col,data_im,height, width, channels,pad,data_im,data_col)
     for (c = 0; c < channels_col; ++c) {
-        int w_offset = c % ksize;
-        int h_offset = (c / ksize) % ksize;
-        int c_im = c / ksize / ksize;
+        // int w_offset = c % ksize;
+        // int h_offset = (c / ksize) % ksize;
+        // int c_im = c / ksize / ksize;
+        w_offset = (c % ksize) - pad;
+        // h_offset = (c / ksize) % ksize;
+        h_offset = ((c / ksize) % ksize) - pad;
+        c_im = c / ksize / ksize;
         for (h = 0; h < height_col; ++h) {
+            // int im_row = h_offset + h * stride;
+            // im_row = h_offset + h * stride;
+            row = h_offset + h * stride;
+            row_offset = (c * height_col + h) * width_col;
+            srow_offset = width*(row + height*c_im);
             for (w = 0; w < width_col; ++w) {
-                int im_row = h_offset + h * stride;
-                int im_col = w_offset + w * stride;
-                int col_index = (c * height_col + h) * width_col + w;
-                data_col[col_index] = im2col_get_pixel(data_im, height, width, channels,
-                        im_row, im_col, c_im, pad);
+                // int im_col = w_offset + w * stride;
+                // im_col = w_offset + w * stride;
+                // https://software.intel.com/content/www/us/en/develop/articles/caffe-optimized-for-intel-architecture-applying-modern-code-techniques.html
+                // int col_index = (c * height_col + h) * width_col + w;
+                col = w_offset + w * stride;
+                if (((unsigned) row) < ((unsigned) height) && ((unsigned) col) < ((unsigned) width)) {
+                    data_col[row_offset + w] = data_im[srow_offset+col];
+                }
+                else {
+                    data_col[row_offset + w] = 0;
+                }
+                // data_col[(c * height_col + h) * width_col + w] = im2col_get_pixel(data_im, height, width, channels,
+                //         im_row, im_col,c_im , pad);
+                // data_col[col_major_ind] = im2col_get_pixel(data_im, height, width, channels,
+                //         im_row, im_col, c_im, pad);
+                // ++col_major_ind;
             }
         }
     }
