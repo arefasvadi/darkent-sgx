@@ -195,8 +195,8 @@ void gemm(int TA, int TB, int M, int N, int K, float ALPHA,
     SET_START_TIMING(SGX_TIMING_GEMM);
     char transa = TA == 1 ? 'T':'N';
     char transb = TB == 1 ? 'T':'N';
-    // dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
-    primitive_based_sgemm(transa, transb, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
+    dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
+    // primitive_based_sgemm(transa, transb, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
     SET_FINISH_TIMING(SGX_TIMING_GEMM);
     #else
     gemm_cpu( TA,  TB,  M, N, K, ALPHA,A,lda, B, ldb,BETA,C,ldc);
@@ -213,8 +213,8 @@ void gemm_fll(int TA, int TB, int M, int N, int K, float ALPHA,
     SET_START_TIMING(SGX_TIMING_GEMM_FLL);
     char transa = TA == 1 ? 'T':'N';
     char transb = TB == 1 ? 'T':'N';
-    // dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
-    primitive_based_sgemm(transa, transb, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
+    dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
+    // primitive_based_sgemm(transa, transb, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
     SET_FINISH_TIMING(SGX_TIMING_GEMM_FLL);
     #else
     LOG_ERROR("do not use this imple of gemm\n");
@@ -233,8 +233,8 @@ void gemm_vrf(int TA, int TB, int M, int N, int K, float ALPHA,
     SET_START_TIMING(SGX_TIMING_GEMM_VERF);
     char transa = TA == 1 ? 'T':'N';
     char transb = TB == 1 ? 'T':'N';
-    // dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
-    primitive_based_sgemm(transa, transb, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
+    dnnl_sgemm(transa,transb, M,  N,  K, ALPHA, A,  lda, B, ldb, BETA, C, ldc);
+    // primitive_based_sgemm(transa, transb, M, N, K, ALPHA, A, lda, B, ldb, BETA, C, ldc);
     SET_FINISH_TIMING(SGX_TIMING_GEMM_VERF);
     #else
     LOG_ERROR("do not use this imple of gemm\n");
